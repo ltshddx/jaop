@@ -1,0 +1,41 @@
+apply plugin: 'java'
+
+sourceCompatibility = 1.7
+targetCompatibility = 1.7
+
+buildscript {
+    repositories {
+        mavenCentral()
+        jcenter()
+    }
+    dependencies {
+        classpath 'com.jfrog.bintray.gradle:gradle-bintray-plugin:1.2'
+        classpath 'com.github.dcendents:android-maven-plugin:1.2'
+    }
+}
+
+ext {
+    bintrayRepo = 'maven'
+    bintrayName = 'jaop-domain'
+
+    publishedGroupId = GROUP_ID
+    libraryName = 'jaopDomain'
+    artifact = POM_ARTIFACT_ID
+
+    libraryDescription = POM_DESCRIPTION
+
+    siteUrl = 'https://github.com/ltshddx/jaop'
+    gitUrl = 'https://github.com/ltshddx/jaop.git'
+
+    libraryVersion = VERSION_NAME
+
+    developerId = POM_DEVELOPER_ID
+    developerName = POM_DEVELOPER_NAME
+    developerEmail = POM_DEVELOPER_EMAIL
+
+    licenseName = 'The Apache Software License, Version 2.0'
+    licenseUrl = 'http://www.apache.org/licenses/LICENSE-2.0.txt'
+    allLicenses = ["Apache-2.0"]
+}
+apply from: 'mvn_install.gradle'
+apply from: 'jcenter_bintray.gradle'
