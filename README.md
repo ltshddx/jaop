@@ -3,6 +3,7 @@
 jaop 是一个基于javassist的gradle aop插件，可以在特定的方法调用处或方法体内 编程
 
 配置
+```groovy
 repositories {
   jcenter()
 }
@@ -12,5 +13,6 @@ dependencies {
 }
 
 apply plugin: 'jaop'
+```
 
 详情请看sample
