@@ -11,9 +11,9 @@ class ClassMatcher {
 
         // 利用正则
         def result = "$clazz.$methodName" ==~ match
-        if (result) {
-            println "[matcher] $clazz.$methodName is match ${replace.value()}"
-        }
+//        if (result) {
+//            println "[matcher] $clazz.$methodName is match ${replace.value()}"
+//        }
 
         return result
     }

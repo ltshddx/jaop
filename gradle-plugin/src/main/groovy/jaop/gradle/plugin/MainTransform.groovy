@@ -21,7 +21,9 @@ import javassist.bytecode.AttributeInfo
 import javassist.expr.ExprEditor
 import javassist.expr.MethodCall
 import org.gradle.api.Plugin
-import org.gradle.api.Project;
+import org.gradle.api.Project
+import java.util.concurrent.ForkJoinPool
+import java.util.stream.Stream;
 
 class MainTransform extends Transform implements Plugin<Project> {
     Project project
@@ -66,120 +68,99 @@ class MainTransform extends Transform implements Plugin<Project> {
             classPool.appendClassPath((String)it.absolutePath)
         }
 
-        def dryClasses = TransformFileUtils.toCtClasses(inputs, classPool)
+        def box = TransformFileUtils.toCtClasses(inputs, classPool)
 
-        // todo 可以优化进上面的方法
-        def configs = JaopScanner.scanAopConfig(classPool, dryClasses)
-
-        dryClasses.addAll(justDoIt(dryClasses, configs, classPool))
-
-        dryClasses.each {
-            try {
-                it.writeFile(outDir.absolutePath)
-            } catch (Exception e) {
-                println it
-                throw e
-            }
-        }
         def cost = (System.currentTimeMillis() -startTime) / 1000
-        println "jaop cost $cost second, class count ${dryClasses.size()}"
+        println "check all class cost $cost second, class count ${box.dryClasses.size()}"
+
+        justDoIt(box, outDir)
+
+        cost = (System.currentTimeMillis() -startTime) / 1000
+        println "jaop cost $cost second, class count ${box.dryClasses.size()}"
         println '================jaop   end================'
     }
 
-    static def justDoIt(List<CtClass> list, List<CtMethod> configs, ClassPool classPool) {
-        List<CtMethod> callConfig = new ArrayList<>()
-        List<CtMethod> bodyConfig = new ArrayList<>()
-        List<CtClass> wetClasses = new ArrayList<>()
-
-        configs.each {
-            if (it.parameterTypes.length == 1 && it.parameterTypes[0] == classPool.get(MethodCallHook.name)) {
-                callConfig.add(it)
-            } else if (it.parameterTypes.length == 1 && it.parameterTypes[0] == classPool.get(MethodBodyHook.name)) {
-                bodyConfig.add(it)
-            }
+    static void justDoIt(ClassBox box, File outDir) {
+        if (box.callConfig.size() == 0 && box.bodyConfig.size() == 0) {
+            return
         }
 
-        if (callConfig.size() == 0 && bodyConfig.size() == 0) {
-            return wetClasses
-        }
+        new ForkJoinPool().submit{
+            box.dryClasses.parallelStream().forEach { ctClass ->
+                box.callConfig.parallelStream().filter {
+                    ctClass != it.declaringClass
+                }.forEach { config ->
+                    ctClass.instrument(new ExprEditor() {
+                        @Override
+                        void edit(MethodCall m) throws CannotCompileException {
+                            Replace replace = (Replace) config.getAnnotation(Replace)
+                            if (ClassMatcher.match(m.className, m.methodName, replace)) {
+                                def makeClass = ProxyClassMaker.make(m.method, replace, outDir)
 
-        list.each { ctClass ->
-            callConfig.findAll {
-                ctClass != it.declaringClass
-            }.each { config ->
-                ctClass.instrument(new ExprEditor() {
-                    @Override
-                    void edit(MethodCall m) throws CannotCompileException {
-                        Replace replace = (Replace)config.getAnnotation(Replace)
-                        if (ClassMatcher.match(m.className, m.methodName, replace)) {
-                            def makeClass = ProxyClassMaker.make(m.method, replace)
-
-                            wetClasses.add(makeClass)
-                            // 静态方法 没有this
-                            def thisFlag = ''
-                            if (!m.withinStatic()) {
-                                thisFlag = 'makeclass.setThis(this);'
+                                // 静态方法 没有this
+                                def thisFlag = ''
+                                if (!m.withinStatic()) {
+                                    thisFlag = 'makeclass.setThis(this);'
+                                }
+                                def body = "$makeClass.name makeclass = new $makeClass.name(\$0, \$\$);" +
+                                        thisFlag +
+                                        " new $config.declaringClass.name().$config.name(makeclass);" +
+                                        "\$_ = (\$r)makeclass.getResult();"
+                                m.replace(body)
                             }
-                            def body = "$makeClass.name makeclass = new $makeClass.name(\$0, \$\$);" +
-                                    thisFlag +
-                                    " new $config.declaringClass.name().$config.name(makeclass);" +
-                                    "\$_ = (\$r)makeclass.getResult();"
-                            m.replace(body)
                         }
-                    }
-                })
-            }
-
-            bodyConfig.findAll {
-                ctClass != it.declaringClass
-            }.each { config ->
-                ctClass.declaredMethods.findAll { method ->
-                    ClassMatcher.match(method.declaringClass.name, method.name, (Replace)config.getAnnotation(Replace))
-                }.each {
-                    // fixbug aop body failed
-                    CtMethod realSrcClass = new CtMethod(it.returnType, it.name, it.parameterTypes, it.declaringClass)
-                    it.setName((it.name + '_jaop_create_' + it.hashCode()).replaceAll('-', '_'))
-                    realSrcClass.setModifiers(it.modifiers)
-                    it.declaringClass.addMethod(realSrcClass)
-                    it.setModifiers(Modifier.setPublic(it.modifiers))
-
-                    // repalce annotations
-                    def visibleTag = it.getMethodInfo().getAttribute(AnnotationsAttribute.visibleTag);
-                    def invisibleTag = it.getMethodInfo().getAttribute(AnnotationsAttribute.invisibleTag);
-                    if (visibleTag != null) {
-                        realSrcClass.getMethodInfo().addAttribute(visibleTag)
-                        remove(it.getMethodInfo().attributes, AnnotationsAttribute.visibleTag)
-                    }
-                    if (invisibleTag != null) {
-                        realSrcClass.getMethodInfo().addAttribute(invisibleTag)
-                        remove(it.getMethodInfo().attributes, AnnotationsAttribute.invisibleTag)
-                    }
-
-                    Replace replace = (Replace)config.getAnnotation(Replace)
-                    def makeClass = ProxyClassMaker.make(it, replace)
-                    wetClasses.add(makeClass)
-
-                    def body
-                    def returnFlag = ''
-                    if (realSrcClass.returnType != CtClass.voidType) {
-                        returnFlag = "return (\$r)makeclass.getResult();"
-                    }
-
-                    if (Modifier.isStatic(realSrcClass.modifiers)) {
-                        body = "$makeClass.name makeclass = new $makeClass.name(null, \$\$);" +
-                                " new $config.declaringClass.name().$config.name(makeclass);" +
-                                returnFlag
-                    } else {
-                        body = "$makeClass.name makeclass = new $makeClass.name(\$0, \$\$);" +
-                                " new $config.declaringClass.name().$config.name(makeclass);" +
-                                returnFlag
-                    }
-                    realSrcClass.setBody("{$body}")
+                    })
                 }
-            }
-        }
 
-        return wetClasses
+                box.bodyConfig.parallelStream().filter {
+                    ctClass != it.declaringClass
+                }.forEach { config ->
+                    Stream.<CtMethod> of(ctClass.declaredMethods).parallel().filter { method ->
+                        ClassMatcher.match(method.declaringClass.name, method.name, (Replace) config.getAnnotation(Replace))
+                    }.forEach {
+                        // fixbug aop body failed
+                        CtMethod realSrcClass = new CtMethod(it.returnType, it.name, it.parameterTypes, it.declaringClass)
+                        it.setName((it.name + '_jaop_create_' + it.hashCode()).replaceAll('-', '_'))
+                        realSrcClass.setModifiers(it.modifiers)
+                        it.declaringClass.addMethod(realSrcClass)
+                        it.setModifiers(Modifier.setPublic(it.modifiers))
+
+                        // repalce annotations
+                        def visibleTag = it.getMethodInfo().getAttribute(AnnotationsAttribute.visibleTag);
+                        def invisibleTag = it.getMethodInfo().getAttribute(AnnotationsAttribute.invisibleTag);
+                        if (visibleTag != null) {
+                            realSrcClass.getMethodInfo().addAttribute(visibleTag)
+                            remove(it.getMethodInfo().attributes, AnnotationsAttribute.visibleTag)
+                        }
+                        if (invisibleTag != null) {
+                            realSrcClass.getMethodInfo().addAttribute(invisibleTag)
+                            remove(it.getMethodInfo().attributes, AnnotationsAttribute.invisibleTag)
+                        }
+
+                        Replace replace = (Replace) config.getAnnotation(Replace)
+                        def makeClass = ProxyClassMaker.make(it, replace, outDir)
+
+                        def body
+                        def returnFlag = ''
+                        if (realSrcClass.returnType != CtClass.voidType) {
+                            returnFlag = "return (\$r)makeclass.getResult();"
+                        }
+
+                        if (Modifier.isStatic(realSrcClass.modifiers)) {
+                            body = "$makeClass.name makeclass = new $makeClass.name(null, \$\$);" +
+                                    " new $config.declaringClass.name().$config.name(makeclass);" +
+                                    returnFlag
+                        } else {
+                            body = "$makeClass.name makeclass = new $makeClass.name(\$0, \$\$);" +
+                                    " new $config.declaringClass.name().$config.name(makeclass);" +
+                                    returnFlag
+                        }
+                        realSrcClass.setBody("{$body}")
+                    }
+                }
+                ctClass.writeFile(outDir.absolutePath)
+            }
+        }.get()
     }
 
     static synchronized void remove(List list, String name) {
