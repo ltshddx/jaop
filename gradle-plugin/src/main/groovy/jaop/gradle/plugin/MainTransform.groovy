@@ -87,7 +87,7 @@ class MainTransform extends Transform implements Plugin<Project> {
 
         new ForkJoinPool().submit{
             box.dryClasses.parallelStream().forEach { ctClass ->
-                box.callConfig.parallelStream().filter {
+                box.callConfig.stream().filter {
                     ctClass != it.declaringClass
                 }.forEach { config ->
                     ctClass.instrument(new ExprEditor() {
@@ -112,7 +112,7 @@ class MainTransform extends Transform implements Plugin<Project> {
                     })
                 }
 
-                box.bodyConfig.parallelStream().filter {
+                box.bodyConfig.stream().filter {
                     ctClass != it.declaringClass
                 }.forEach { config ->
                     Stream.<CtMethod> of(ctClass.declaredMethods).parallel().filter { method ->
