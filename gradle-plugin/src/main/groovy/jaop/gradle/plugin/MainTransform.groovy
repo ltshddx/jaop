@@ -8,8 +8,6 @@ import com.android.build.api.transform.TransformException
 import com.android.build.api.transform.TransformInput
 import com.android.build.api.transform.TransformOutputProvider
 import com.android.build.gradle.internal.pipeline.TransformManager
-import jaop.domain.MethodBodyHook
-import jaop.domain.MethodCallHook
 import jaop.domain.annotation.Replace
 import javassist.CannotCompileException
 import javassist.ClassPool
@@ -82,6 +80,11 @@ class MainTransform extends Transform implements Plugin<Project> {
 
     static void justDoIt(ClassBox box, File outDir) {
         if (box.callConfig.size() == 0 && box.bodyConfig.size() == 0) {
+            new ForkJoinPool().submit {
+                box.dryClasses.parallelStream().forEach {
+                    it.writeFile(outDir.absolutePath)
+                }
+            }.get()
             return
         }
 
@@ -119,21 +122,21 @@ class MainTransform extends Transform implements Plugin<Project> {
                         ClassMatcher.match(method.declaringClass.name, method.name, (Replace) config.getAnnotation(Replace))
                     }.forEach {
                         // fixbug aop body failed
-                        CtMethod realSrcClass = new CtMethod(it.returnType, it.name, it.parameterTypes, it.declaringClass)
+                        CtMethod realSrcMethod = new CtMethod(it.returnType, it.name, it.parameterTypes, it.declaringClass)
                         it.setName((it.name + '_jaop_create_' + it.hashCode()).replaceAll('-', '_'))
-                        realSrcClass.setModifiers(it.modifiers)
-                        it.declaringClass.addMethod(realSrcClass)
+                        realSrcMethod.setModifiers(it.modifiers)
+                        it.declaringClass.addMethod(realSrcMethod)
                         it.setModifiers(Modifier.setPublic(it.modifiers))
 
                         // repalce annotations
                         def visibleTag = it.getMethodInfo().getAttribute(AnnotationsAttribute.visibleTag);
                         def invisibleTag = it.getMethodInfo().getAttribute(AnnotationsAttribute.invisibleTag);
                         if (visibleTag != null) {
-                            realSrcClass.getMethodInfo().addAttribute(visibleTag)
+                            realSrcMethod.getMethodInfo().addAttribute(visibleTag)
                             remove(it.getMethodInfo().attributes, AnnotationsAttribute.visibleTag)
                         }
                         if (invisibleTag != null) {
-                            realSrcClass.getMethodInfo().addAttribute(invisibleTag)
+                            realSrcMethod.getMethodInfo().addAttribute(invisibleTag)
                             remove(it.getMethodInfo().attributes, AnnotationsAttribute.invisibleTag)
                         }
 
@@ -142,11 +145,11 @@ class MainTransform extends Transform implements Plugin<Project> {
 
                         def body
                         def returnFlag = ''
-                        if (realSrcClass.returnType != CtClass.voidType) {
+                        if (realSrcMethod.returnType != CtClass.voidType) {
                             returnFlag = "return (\$r)makeclass.getResult();"
                         }
 
-                        if (Modifier.isStatic(realSrcClass.modifiers)) {
+                        if (Modifier.isStatic(realSrcMethod.modifiers)) {
                             body = "$makeClass.name makeclass = new $makeClass.name(null, \$\$);" +
                                     " new $config.declaringClass.name().$config.name(makeclass);" +
                                     returnFlag
@@ -155,7 +158,7 @@ class MainTransform extends Transform implements Plugin<Project> {
                                     " new $config.declaringClass.name().$config.name(makeclass);" +
                                     returnFlag
                         }
-                        realSrcClass.setBody("{$body}")
+                        realSrcMethod.setBody("{$body}")
                     }
                 }
                 ctClass.writeFile(outDir.absolutePath)
