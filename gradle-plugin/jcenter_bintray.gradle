@@ -3,7 +3,7 @@ apply plugin: 'com.jfrog.bintray'
 version = libraryVersion
 
 task sourcesJar(type: Jar) {
-    from sourceSets.main.java.srcDirs
+    from sourceSets.main.allSource
     classifier = 'sources'
 }
 

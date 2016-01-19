@@ -1,6 +1,5 @@
 package jaop.gradle.plugin
 
-import jaop.domain.annotation.Replace
 import jaop.domain.internal.HookImplForPlugin
 import javassist.CtClass
 import javassist.CtConstructor
@@ -10,9 +9,9 @@ import javassist.Modifier
 
 class ProxyClassMaker {
 
-    static def make(CtMethod ctMethod, Replace replace, File outDir) {
+    static def make(CtMethod ctMethod, File outDir) {
         def classPool = ctMethod.declaringClass.classPool
-        String className = HookImplForPlugin.class.name + '$Impl' + (ctMethod.hashCode() + Integer.MAX_VALUE)
+        String className = ctMethod.declaringClass.name + '$Impl' + ctMethod.hashCode()
         className = className.replace('-', '_')
         synchronized (ctMethod) {
             def makeClass = classPool.getOrNull(className)
@@ -60,11 +59,6 @@ class ProxyClassMaker {
                 getTarget.setBody('{return target;}')
                 makeClass.addMethod(getTarget)
 
-                // create setThis
-                CtMethod setThis = new CtMethod(CtClass.voidType, 'setThis', classPool.get(Object.class.name) as CtClass[], makeClass)
-                setThis.setBody('{callThis = $1;}')
-                makeClass.addMethod(setThis)
-
                 // create process method
                 CtMethod process = new CtMethod(classPool.get(Object.class.name), 'process', null, makeClass)
                 def returnBodyPrefix = ''
@@ -78,12 +72,49 @@ class ProxyClassMaker {
                 } else {
                     process.setBody("{$returnBodyPrefix target.$ctMethod.name($paramBody); return result;}")
                 }
+                def throwable = classPool.get('java.lang.Throwable') as CtClass[]
+                process.setExceptionTypes(throwable)
                 makeClass.addMethod(process)
+
+                // create process(args) method
+                CtMethod process2 = new CtMethod(classPool.get(Object.class.name), 'process', classPool.get(Object[].class.name) as CtClass[], makeClass)
+                def argsBody = ''
+                ctMethod.parameterTypes.eachWithIndex { CtClass entry, int i ->
+                    argsBody += "param$i = "
+                    argsBody += getBasicType(entry, "\$1[$i]") + ';'
+                }
+                process2.setBody("{$argsBody return process();}");
+                process2.setExceptionTypes(throwable)
+                makeClass.addMethod(process2)
+
                 makeClass.freeze()
                 makeClass.writeFile(outDir.absolutePath)
                 println "make proxy class for $ctMethod.declaringClass.name.$ctMethod.name, name is $makeClass.name"
             }
             return makeClass
+        }
+    }
+
+    static String getBasicType(CtClass ctClass, String param) {
+        switch (ctClass.name) {
+            case 'boolean':
+                return "((Boolean)$param).booleanValue()"
+            case 'char':
+                return "((Character)$param).charValue()"
+            case 'byte':
+                return "((Byte)$param).byteValue()"
+            case 'short':
+                return "((Short)$param).shortValue()"
+            case 'int':
+                return "((Integer)$param).intValue()"
+            case 'long':
+                return "((Long)$param).longValue()"
+            case 'float':
+                return "((Float)$param).floatValue()"
+            case 'double':
+                return "((Double)$param).doubleValue()"
+            default:
+                return "($ctClass.name)$param"
         }
     }
 }

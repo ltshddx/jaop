@@ -4,9 +4,11 @@ package jaop.domain;
  * Created by liting06 on 15/12/27.
  */
 public interface MethodBodyHook {
-    public Object process();
+    public Object process() throws Throwable;
 
-//    public Object getResult();  //process return result
+    public Object process(Object[] args) throws Throwable;
+
+    public Object getResult();
 
     public void setResult(Object result);
 
@@ -14,5 +16,4 @@ public interface MethodBodyHook {
 
     public Object[] getArgs();
 
-//    public void setArgs(Object[] args);  not support
 }

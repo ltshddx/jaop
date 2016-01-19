@@ -6,13 +6,10 @@ import java.lang.annotation.RetentionPolicy;
 import java.lang.annotation.Target;
 
 /**
- * Created by liting06 on 15/12/26.
+ * Created by liting06 on 16/1/21.
  */
-
 @Retention(RetentionPolicy.CLASS)
 @Target(ElementType.METHOD)
-public @interface Replace {
-//    public String clazz() default "";
-//    public String method() default "";
+public @interface After {
     public String value();
 }

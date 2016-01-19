@@ -26,7 +26,7 @@ dependencies {
     compile localGroovy()
     compile 'com.android.tools.build:gradle:1.5.0'
     compile 'org.javassist:javassist:3.20.0-GA'
-    compile 'jaop.domain:domain:0.0.2'
+    compile 'jaop.domain:domain:0.0.4'
     compile fileTree(dir: "./src/main/libs", include: ['*.jar'])
 }
 

@@ -15,4 +15,22 @@ dependencies {
 apply plugin: 'jaop'
 ```
 
+用法
+```java
+@Jaop  //配置文件的开关
+public class JaopDemo {
+    @Replace("demo.jaop.sample.MainActivity.onCreate")  // hook 掉onCreate 方法的方法体
+    public void replace1(MethodBodyHook hook) {
+        hook.process(); // 原方法执行
+        Button button = (Button) ((Activity) hook.getTarget()).findViewById(R.id.button);
+        button.setText("text replace by jaop");
+    }
+
+    @Replace("android.widget.Toast.makeText") // hook 掉onCreate 方法的调用处
+    public void replace2(MethodCallHook hook) {
+        Object[] args = hook.getArgs();
+        hook.setResult(Toast.makeText((Context)args[0], "hoock toast", Toast.LENGTH_LONG)); // 设置返回值
+    }
+}
+```
 详情请看sample

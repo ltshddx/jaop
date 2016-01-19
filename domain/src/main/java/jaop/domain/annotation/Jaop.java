@@ -8,7 +8,7 @@ import java.lang.annotation.Target;
 /**
  * Created by liting06 on 15/12/26.
  */
-@Retention(RetentionPolicy.RUNTIME)
+@Retention(RetentionPolicy.CLASS)
 @Target(ElementType.TYPE)
 public @interface Jaop {
     public String value() default "";

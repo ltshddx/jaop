@@ -5,10 +5,11 @@ import jaop.domain.MethodCallHook;
 /**
  * Created by liting06 on 15/12/27.
  */
-public abstract class HookImplForPlugin implements MethodCallHook {
-    protected Object callThis;
-    protected Object result;
-    protected Object[] args;
+public class HookImplForPlugin implements MethodCallHook {
+    public Object callThis;
+    public Object target;
+    public Object result;
+    public Object[] args;
 
     @Override
     public Object getThis() {
@@ -16,9 +17,16 @@ public abstract class HookImplForPlugin implements MethodCallHook {
     }
 
     @Override
-    public abstract Object process();
+    public Object process() throws Throwable {
+        return null;
+    }
 
-//    @Override
+    @Override
+    public Object process(Object[] args) throws Throwable {
+        return null;
+    }
+
+    @Override
     public Object getResult() {
         return result;
     }
@@ -29,15 +37,12 @@ public abstract class HookImplForPlugin implements MethodCallHook {
     }
 
     @Override
-    public abstract Object getTarget();
+    public Object getTarget() {
+        return target;
+    }
 
     @Override
     public Object[] getArgs() {
         return args;
     }
-
-//    @Override
-//    public void setArgs(Object[] args) {
-//        this.args = args;
-//    }
 }

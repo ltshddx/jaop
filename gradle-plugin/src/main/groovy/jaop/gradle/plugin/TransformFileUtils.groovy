@@ -4,6 +4,8 @@ import com.android.SdkConstants
 import com.android.build.api.transform.TransformInput
 import jaop.domain.MethodBodyHook
 import jaop.domain.MethodCallHook
+import jaop.domain.annotation.After
+import jaop.domain.annotation.Before
 import jaop.domain.annotation.Jaop
 import jaop.domain.annotation.Replace
 import javassist.ClassPool
@@ -14,8 +16,11 @@ import org.apache.commons.io.FileUtils
 import java.util.jar.JarFile
 
 class TransformFileUtils {
+    private static final String METHODCALLHOOK_NAME = MethodCallHook.name
+    private static final String METHODBODYHOOK_NAME = MethodBodyHook.name
+
     static ClassBox toCtClasses(Collection<TransformInput> inputs, ClassPool classPool) {
-        ClassBox box = new ClassBox()
+        List<String> classNames = new ArrayList<>()
 
         inputs.each {
             it.directoryInputs.each {
@@ -24,7 +29,7 @@ class TransformFileUtils {
                 FileUtils.listFiles(it.file, null, true).each {
                     if (it.absolutePath.endsWith(SdkConstants.DOT_CLASS)) {
                         def className = it.absolutePath.substring(dirPath.length() + 1, it.absolutePath.length() - SdkConstants.DOT_CLASS.length()).replaceAll('/', '.')
-                        checkCtClass(classPool, box, classPool.get(className))
+                        classNames.add(className)
                     }
                 }
             }
@@ -36,9 +41,14 @@ class TransformFileUtils {
                     it.name.endsWith(SdkConstants.DOT_CLASS)
                 }.each {
                     def className = it.name.substring(0, it.name.length() - SdkConstants.DOT_CLASS.length()).replaceAll('/', '.')
-                    checkCtClass(classPool, box, classPool.get(className))
+                    classNames.add(className)
                 }
             }
+        }
+
+        ClassBox box = new ClassBox()
+        classNames.each {
+            checkCtClass(classPool, box, classPool.get(it))
         }
 
         return box
@@ -47,17 +57,42 @@ class TransformFileUtils {
 
     static void checkCtClass(ClassPool classPool, ClassBox box, CtClass ctClass) {
         box.dryClasses.add(ctClass)
+        box.methodCache.add(ctClass.declaredMethods)
         if (ctClass.getAnnotation(Jaop) != null) {
-            ctClass.declaredMethods.findAll {
-                it.getAnnotation(Replace) != null
-            }.each {
-                if (!Modifier.isPublic(it.modifiers)) {
-                    it.setModifiers(Modifier.setPublic(it.modifiers))
+            ctClass.declaredMethods.each {
+
+                Object object = it.getAnnotation(Replace)
+                if (object == null) {
+                    object = it.getAnnotation(Before)
                 }
-                if (it.parameterTypes.length == 1 && it.parameterTypes[0] == classPool.get(MethodCallHook.name)) {
-                    box.callConfig.add(it)
-                } else if (it.parameterTypes.length == 1 && it.parameterTypes[0] == classPool.get(MethodBodyHook.name)) {
-                    box.bodyConfig.add(it)
+                if (object == null) {
+                    object = it.getAnnotation(After)
+                }
+                if (object != null) {
+                    Config config = new Config()
+
+                    // Annotation
+                    String match = object.value().trim()
+                    config.target = new TargetMethod()
+                    if (match.contains('*')) {
+                        println "has regex $ctClass.name $it.name"
+                        match = match.replace('**', ".+")
+                        match = match.replace('*', '\\w+')
+                        config.target.isRegex = true
+                    }
+                    config.target.value = match
+                    config.annotation = object
+                    config.ctMethod = it
+
+                    if (it.parameterTypes.length == 1 && it.parameterTypes[0].name == METHODCALLHOOK_NAME) {
+                        box.callConfig.add(config)
+                    } else if (it.parameterTypes.length == 1 && it.parameterTypes[0].name == METHODBODYHOOK_NAME) {
+                        box.bodyConfig.add(config)
+                    }
+
+                    if (!Modifier.isPublic(it.modifiers)) {
+                        it.setModifiers(Modifier.setPublic(it.modifiers))
+                    }
                 }
             }
         }
