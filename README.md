@@ -19,9 +19,8 @@ apply plugin: 'jaop'
 ```java
 @Jaop  //配置文件的开关
 public class JaopDemo {
-    @Replace("demo.jaop.sample.MainActivity.onCreate")  // hook 掉onCreate 方法的方法体
+    @After("demo.jaop.sample.MainActivity.onCreate")  // hook 掉onCreate 方法的方法体
     public void replace1(MethodBodyHook hook) {
-        hook.process(); // 原方法执行
         Button button = (Button) ((Activity) hook.getTarget()).findViewById(R.id.button);
         button.setText("text replace by jaop");
     }
