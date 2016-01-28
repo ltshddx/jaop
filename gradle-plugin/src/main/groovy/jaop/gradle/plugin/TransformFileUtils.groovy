@@ -21,7 +21,7 @@ class TransformFileUtils {
 
     static ClassBox toCtClasses(Collection<TransformInput> inputs, ClassPool classPool) {
         List<String> classNames = new ArrayList<>()
-
+        def startTime = System.currentTimeMillis()
         inputs.each {
             it.directoryInputs.each {
                 def dirPath = it.file.absolutePath
@@ -45,7 +45,8 @@ class TransformFileUtils {
                 }
             }
         }
-
+        def cost = (System.currentTimeMillis() -startTime) / 1000
+        println "read all class file cost $cost second"
         ClassBox box = new ClassBox()
         classNames.each {
             checkCtClass(classPool, box, classPool.get(it))
@@ -57,7 +58,7 @@ class TransformFileUtils {
 
     static void checkCtClass(ClassPool classPool, ClassBox box, CtClass ctClass) {
         box.dryClasses.add(ctClass)
-        box.methodCache.add(ctClass.declaredMethods)
+//        box.methodCache.add(ctClass.declaredMethods)
         if (ctClass.getAnnotation(Jaop) != null) {
             ctClass.declaredMethods.each {
 
@@ -74,7 +75,12 @@ class TransformFileUtils {
                     // Annotation
                     String match = object.value().trim()
                     config.target = new TargetMethod()
-                    if (match.contains('*')) {
+                    String[] splits = match.split("[+][.]")
+                    if (splits.length == 2) {
+                        config.target.className = splits[0]
+                        config.target.methodName = splits[1]
+                        config.target.handleSubClass = true
+                    } else if (match.contains('*')) {
                         println "has regex $ctClass.name $it.name"
                         match = match.replace('**', ".+")
                         match = match.replace('*', '\\w+')

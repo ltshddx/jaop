@@ -9,5 +9,5 @@ class ClassBox {
     List<Config> bodyConfig = new ArrayList<>()
 
     // getDeclaredMethods 的缓存  防止重复创建和死锁  空间换时间
-    List<CtMethod[]> methodCache = new ArrayList<>()
+//    List<CtMethod[]> methodCache = new ArrayList<>()
 }

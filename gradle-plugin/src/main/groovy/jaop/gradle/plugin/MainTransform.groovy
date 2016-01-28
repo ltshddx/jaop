@@ -11,7 +11,7 @@ import com.android.build.gradle.internal.pipeline.TransformManager
 import jaop.domain.annotation.After
 import jaop.domain.annotation.Before
 import jaop.domain.annotation.Replace
-import javassist.ClassPool
+import javassist.JaopClassPool
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import java.util.concurrent.ForkJoinPool
@@ -23,7 +23,7 @@ class MainTransform extends Transform implements Plugin<Project> {
         this.project = target
         project.android.registerTransform(this)
         project.dependencies {
-            compile 'jaop.domain:domain:0.0.4'
+            compile 'jaop.domain:domain:0.0.5'
         }
     }
 
@@ -54,7 +54,7 @@ class MainTransform extends Transform implements Plugin<Project> {
         outputProvider.deleteAll()
         def outDir = outputProvider.getContentLocation("main", outputTypes, scopes, Format.DIRECTORY)
 
-        ClassPool classPool = new ClassPool(null)
+        JaopClassPool classPool = new JaopClassPool()
         project.android.bootClasspath.each {
             classPool.appendClassPath((String)it.absolutePath)
         }
@@ -95,44 +95,27 @@ class MainTransform extends Transform implements Plugin<Project> {
                     }
                 }
 
-                if (box.bodyConfig.size() > 0) {
-                    ctClass.declaredMethods.each { method ->
-                        int replaceCount = 0, beforeCount = 0, afterCount = 0
-                        Config replaceConfig = null, beforeConfig = null, afterConfig = null
-                        box.bodyConfig.findAll { config ->
-                            ClassMatcher.match(ctClass.name, method.name, config.target)
-                        } each { config ->
-                            if (config.annotation instanceof Replace) {
-                                replaceCount ++
-                                replaceConfig = config
-                            } else if (config.annotation instanceof Before) {
-                                beforeCount ++
-                                beforeConfig = config
-                            } else if (config.annotation instanceof After) {
-                                afterCount ++
-                                afterConfig = config
-                            }
+                box.bodyConfig.findAll { config ->
+                    !config.target.handleSubClass || ClassMatcher.chechSuperclass(ctClass, config.target.className)
+                }.each { config ->
+                    ctClass.declaredMethods.findAll {
+                        (config.target.handleSubClass && config.target.methodName == it.name) ||
+                                ClassMatcher.match(ctClass.name, it.name, config.target)
+                    }.each { ctMethod ->
+                        if (config.annotation instanceof Replace) {
+                            JaopModifier.bodyReplace(ctMethod, config, outDir)
+                        } else if (config.annotation instanceof Before) {
+                            JaopModifier.bodyBefore(ctMethod, config, outDir)
+                        } else if (config.annotation instanceof After) {
+                            JaopModifier.bodyAfter(ctMethod, config, outDir)
                         }
-                        // todo
-                        if (replaceCount > 1 || beforeCount > 1 || afterCount >1) {
-                            throw new RuntimeException("too many aop method on $ctClass.name.$method.name")
-                        } else if (replaceCount + beforeCount > 1 || replaceCount + afterCount > 1) {
-                            throw new RuntimeException("replace and before(or after) can not on one method ($ctClass.name.$method.name)")
-                        } else if (beforeCount == 1 && afterCount == 1) {
-                            JaopModifier.bodyBeforeAndAfter(method, beforeConfig, afterConfig, outDir)
-                        } else if (replaceCount == 1) {
-                            JaopModifier.bodyReplace(method, replaceConfig, outDir)
-                        } else if (beforeCount == 1) {
-                            JaopModifier.bodyBefore(method, beforeConfig, outDir)
-                        } else if (afterCount == 1) {
-                            JaopModifier.bodyAfter(method, afterConfig, outDir)
-                        }
-
                     }
                 }
-                ctClass.writeFile(outDir.absolutePath)
+                if (ctClass.name != "jaop.domain.internal.Cflow")
+                    ctClass.writeFile(outDir.absolutePath)
             }
         }.get()
+        box.dryClasses.get(0).classPool.get("jaop.domain.internal.Cflow").writeFile(outDir.absolutePath)
     }
 
 }

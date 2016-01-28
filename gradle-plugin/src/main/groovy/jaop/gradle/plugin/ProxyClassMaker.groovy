@@ -11,7 +11,7 @@ class ProxyClassMaker {
 
     static def make(CtMethod ctMethod, File outDir) {
         def classPool = ctMethod.declaringClass.classPool
-        String className = ctMethod.declaringClass.name + '$Impl' + ctMethod.hashCode()
+        String className = ctMethod.declaringClass.name + '$Proxy' + ctMethod.hashCode()
         className = className.replace('-', '_')
         synchronized (ctMethod) {
             def makeClass = classPool.getOrNull(className)

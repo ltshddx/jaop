@@ -6,4 +6,8 @@ package jaop.gradle.plugin;
 public class TargetMethod {
     public boolean isRegex = false;
     public String value = null;
+
+    public String className = null;
+    public String methodName = null;
+    public boolean handleSubClass = false;
 }

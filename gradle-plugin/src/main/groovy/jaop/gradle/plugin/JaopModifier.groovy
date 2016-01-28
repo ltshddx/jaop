@@ -1,7 +1,9 @@
 package jaop.gradle.plugin
 
 import javassist.CannotCompileException
+import javassist.ClassPool
 import javassist.CtClass
+import javassist.CtField
 import javassist.CtMethod
 import javassist.Modifier
 import javassist.NotFoundException
@@ -49,7 +51,7 @@ class JaopModifier {
                     if (!m.withinStatic()) {
                         body += 'makeclass.callThis = this;'
                     }
-                    body += " new $config.ctMethod.declaringClass.name().$config.ctMethod.name(makeclass);" +
+                    body += " new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})makeclass);" +
                             "\$_ = (\$r)makeclass.result;"
                     m.replace(body)
                 }
@@ -82,17 +84,32 @@ class JaopModifier {
         def body
         def returnFlag = ''
         if (realSrcMethod.returnType != CtClass.voidType) {
-            returnFlag = "return (\$r)makeclass.result;"
+            returnFlag = 'return'
         }
 
         if (Modifier.isStatic(realSrcMethod.modifiers)) {
-            body = "$makeClass.name makeclass = new $makeClass.name(null, \$\$);" +
-                    " new $config.ctMethod.declaringClass.name().$config.ctMethod.name(makeclass);" +
-                    returnFlag
+            body = "$makeClass.name makeclass = new $makeClass.name(null, \$\$);"
         } else {
-            body = "$makeClass.name makeclass = new $makeClass.name(\$0, \$\$);" +
-                    " new $config.ctMethod.declaringClass.name().$config.ctMethod.name(makeclass);" +
-                    returnFlag
+            body = "$makeClass.name makeclass = new $makeClass.name(\$0, \$\$);"
+        }
+        body += " new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})makeclass);" +
+                (returnFlag == '' ? '' : "return (\$r)makeclass.result;")
+
+        if (config.target.handleSubClass) {
+            def cflowField = getCflowField(it.declaringClass.classPool, config)
+            body = """
+                try {
+                    int value = ${cflowField}.value();
+                    ${cflowField}.enter();
+                    if (value == 0) {
+                        $body
+                    } else {
+                        $returnFlag $it.name(\$\$);
+                    }
+                } finally {
+                    ${cflowField}.exit();
+                }
+                """
         }
         realSrcMethod.setBody("{$body}")
     }
@@ -109,7 +126,7 @@ class JaopModifier {
                     }
                     body += "hook.target = \$0;"
                     body += "hook.args = \$args;"
-                    body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name(hook);"
+                    body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})hook);"
                     body += '$_ = $proceed($$);'
                     m.replace(body)
                 }
@@ -119,9 +136,14 @@ class JaopModifier {
 
     static List<CtMethod> bodyBefore(CtMethod ctMethod, Config config, File outDir) {
         def body = "jaop.domain.internal.HookImplForPlugin hook = new jaop.domain.internal.HookImplForPlugin();"
-        body += "hook.target = \$0;"
+        if (!Modifier.isStatic(ctMethod.modifiers)) {
+            body += "hook.target = \$0;"
+        }
         body += "hook.args = \$args;"
-        body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name(hook);"
+        body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})hook);"
+        if (config.target.handleSubClass) {
+            body = cflow(ctMethod, body, config)
+        }
         ctMethod.insertBefore(body)
     }
 
@@ -139,7 +161,7 @@ class JaopModifier {
                     body += "hook.target = \$0;"
                     body += "hook.result = (\$w)\$_;"
                     body += "hook.args = \$args;"
-                    body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name(hook);"
+                    body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})hook);"
                     body += "\$_ = (\$r)hook.result;"
                     m.replace(body)
                 }
@@ -149,11 +171,16 @@ class JaopModifier {
 
     static List<CtMethod> bodyAfter(CtMethod ctMethod, Config config, File outDir) {
         def body = "jaop.domain.internal.HookImplForPlugin hook = new jaop.domain.internal.HookImplForPlugin();"
-        body += "hook.target = \$0;"
+        if (!Modifier.isStatic(ctMethod.modifiers)) {
+            body += "hook.target = \$0;"
+        }
         body += "hook.result = (\$w)\$_;"
         body += "hook.args = \$args;"
-        body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name(hook);"
+        body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})hook);"
         body += "\$_ = (\$r)hook.result;"
+        if (config.target.handleSubClass) {
+            body = cflow(ctMethod, body, config)
+        }
         ctMethod.insertAfter(body)
     }
 
@@ -179,6 +206,50 @@ class JaopModifier {
         bodyAfter(ctMethod, after, outDir)
     }
 
+    static String cflow(CtMethod ctMethod, String body, Config config) {
+        def fname = getCflowField(ctMethod.declaringClass.classPool, config)
+        ctMethod.insertBefore(fname + ".enter();");
+        String src = fname + ".exit();";
+        ctMethod.insertAfter(src, true);
+        return "if (${fname}.value() == 0) {$body}"
+    }
+
+    static synchronized String getCflowField(ClassPool classPool, Config config) {
+        def cflowFlag = config.target.value + config.annotation.getClass().getName()
+        Object[] cflow = classPool.lookupCflow(cflowFlag)
+        def fname
+        if (cflow == null) {
+            CtClass cc = classPool.get("jaop.domain.internal.Cflow");
+            cc.checkModify();
+            int i = 0;
+            while (true) {
+                fname = '_cflow$' + i++;
+                try {
+                    cc.getDeclaredField(fname);
+                }
+                catch(NotFoundException e) {
+                    break;
+                }
+            }
+
+            classPool.recordCflow(cflowFlag, "jaop.domain.internal.Cflow", fname);
+            try {
+                CtClass type = cc;
+                CtField field = new CtField(type, fname, cc);
+                field.setModifiers(Modifier.PUBLIC | Modifier.STATIC);
+                cc.addField(field, CtField.Initializer.byNew(type));
+                fname = "jaop.domain.internal.Cflow." + fname
+                return fname
+            }
+            catch (NotFoundException e) {
+                throw new CannotCompileException(e);
+            }
+        } else {
+            fname = cflow[0].toString() + '.' + cflow[1].toString()
+        }
+
+        return fname
+    }
 
     static synchronized void remove(List list, String name) {
         if (list == null)
