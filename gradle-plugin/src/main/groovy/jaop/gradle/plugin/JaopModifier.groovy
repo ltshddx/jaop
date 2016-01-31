@@ -2,67 +2,114 @@ package jaop.gradle.plugin
 
 import javassist.CannotCompileException
 import javassist.ClassPool
+import javassist.CtBehavior
 import javassist.CtClass
+import javassist.CtConstructor
 import javassist.CtField
 import javassist.CtMethod
 import javassist.Modifier
 import javassist.NotFoundException
 import javassist.bytecode.AnnotationsAttribute
 import javassist.bytecode.AttributeInfo
-import javassist.expr.ExprEditor
+import javassist.expr.Expr
 import javassist.expr.MethodCall
+import javassist.expr.NewExpr
 
 class JaopModifier {
-    static List<CtMethod> callReplace(CtClass ctClass, Config config, File outDir) {
-        ctClass.instrument(new ExprEditor() {
-            @Override
-            void edit(MethodCall m) throws CannotCompileException {
-                if (ClassMatcher.match(m, config.target)) {
-                    def makeClass
-                    def body = ''
+    static void callReplaceForConstructor(NewExpr e, Config config, List<CtClass> wetClasses) {
+        def makeClass = ProxyClassMaker.make(e.constructor, wetClasses)
+        def body = "$makeClass.name makeclass = new $makeClass.name();"
+        body += 'makeclass.target = $0;'
+        body += 'makeclass.args = $args;'
 
-                    if (m.isSuper()) {
-                        // 如果要hook一个 super. 的方法，不能用常规方法，先将这个super. 封装成其他方法
-                        // 然后就当这里是那个封装的方法
-                        def methodName = "${m.methodName}_from_super_for_jaop_${m.method.hashCode()}"
-                        CtMethod superMethod
-                        try {
-                            superMethod = m.enclosingClass.getDeclaredMethod(methodName, m.method.parameterTypes)
-                        } catch (NotFoundException e) {
-                            superMethod = new CtMethod(m.method.returnType,
-                                    methodName,
-                                    m.method.parameterTypes, m.enclosingClass)
-                            if (superMethod.returnType == CtClass.voidType) {
-                                superMethod.setBody("{super.$m.methodName(\$\$);}")
-                            } else {
-                                superMethod.setBody("{return super.$m.methodName(\$\$);}")
-                            }
-                            m.enclosingClass.addMethod(superMethod)
-                        }
-
-                        makeClass = ProxyClassMaker.make(superMethod, outDir)
-                        body = "$makeClass.name makeclass = new $makeClass.name(this, \$\$);"
-                    } else {
-                        makeClass = ProxyClassMaker.make(m.method, outDir)
-                        body += "$makeClass.name makeclass = new $makeClass.name(\$0, \$\$);"
-                    }
-
-                    // 静态方法 没有this
-                    if (!m.withinStatic()) {
-                        body += 'makeclass.callThis = this;'
-                    }
-                    body += " new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})makeclass);" +
-                            "\$_ = (\$r)makeclass.result;"
-                    m.replace(body)
-                }
-            }
-        })
+        // 静态方法 没有this
+        if (!e.withinStatic()) {
+            body += 'makeclass.callThis = this;'
+        }
+        body += " new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})makeclass);" +
+                "\$_ = (\$r)makeclass.result;"
+        e.replace(body)
     }
 
-    static List<CtMethod> bodyReplace(CtMethod it, Config config, File outDir) {
+    static void callReplace(MethodCall m, Config config, List<CtClass> wetClasses) {
+        def makeClass
+        def body = ''
+
+        if (m.isSuper()) {
+            // 如果要hook一个 super. 的方法，不能用常规方法，先将这个super. 封装成其他方法
+            // 然后就当这里是那个封装的方法
+            def methodName = "${m.methodName}_from_super_for_jaop_${m.method.hashCode()}"
+            CtMethod superMethod
+            try {
+                superMethod = m.enclosingClass.getDeclaredMethod(methodName, m.method.parameterTypes)
+            } catch (NotFoundException e) {
+                superMethod = new CtMethod(m.method.returnType,
+                        methodName,
+                        m.method.parameterTypes, m.enclosingClass)
+                if (superMethod.returnType == CtClass.voidType) {
+                    superMethod.setBody("{super.$m.methodName(\$\$);}")
+                } else {
+                    superMethod.setBody("{return super.$m.methodName(\$\$);}")
+                }
+                m.enclosingClass.addMethod(superMethod)
+            }
+
+            makeClass = ProxyClassMaker.make(superMethod, wetClasses)
+            body = "$makeClass.name makeclass = new $makeClass.name();"
+            body += 'makeclass.target = this;'
+        } else {
+            makeClass = ProxyClassMaker.make(m.method, wetClasses)
+            body += "$makeClass.name makeclass = new $makeClass.name();"
+            body += 'makeclass.target = $0;'
+        }
+        body += 'makeclass.args = $args;'
+
+        // 静态方法 没有this
+        if (!m.withinStatic()) {
+            body += 'makeclass.callThis = this;'
+        }
+        body += " new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})makeclass);" +
+                "\$_ = (\$r)makeclass.result;"
+        m.replace(body)
+    }
+
+    static void bodyReplaceForConstructor(CtConstructor it, Config config, List<CtClass> wetClasses) {
+        def toMethod = it.toMethod((it.name + '_jaop_constructor_' + it.hashCode()).replaceAll('-', '_'), it.declaringClass)
+        it.declaringClass.addMethod(toMethod)
+        // remove annotations
+        remove(toMethod.getMethodInfo().attributes, AnnotationsAttribute.visibleTag)
+        remove(toMethod.getMethodInfo().attributes, AnnotationsAttribute.invisibleTag)
+
+        def makeClass = ProxyClassMaker.make(toMethod, wetClasses)
+
+        def body = "$makeClass.name makeclass = new $makeClass.name();"
+        body += 'makeclass.target = $0;'
+        body += 'makeclass.args = $args;'
+        body += " new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})makeclass);"
+
+        if (config.target.handleSubClass) {
+            def cflowField = getCflowField(it.declaringClass.classPool, config, wetClasses)
+            body = """
+                try {
+                    int value = ${cflowField}.value();
+                    ${cflowField}.enter();
+                    if (value == 0) {
+                        $body
+                    } else {
+                        $toMethod.name(\$\$);
+                    }
+                } finally {
+                    ${cflowField}.exit();
+                }
+                """
+        }
+        it.insertBeforeBody(body + 'return;')
+    }
+
+    static void bodyReplace(CtMethod it, Config config, List<CtClass> wetClasses) {
         // fixbug aop body failed
         CtMethod realSrcMethod = new CtMethod(it.returnType, it.name, it.parameterTypes, it.declaringClass)
-        it.setName((it.name + '_jaop_create_' + it.hashCode()).replaceAll('-', '_'))
+        it.setName((it.name + '_jaop_method_' + it.declaringClass.hashCode() + '_' + it.hashCode()).replaceAll('-', '_'))
         realSrcMethod.setModifiers(it.modifiers)
         it.declaringClass.addMethod(realSrcMethod)
         it.setModifiers(Modifier.setPublic(it.modifiers))
@@ -79,7 +126,7 @@ class JaopModifier {
             remove(it.getMethodInfo().attributes, AnnotationsAttribute.invisibleTag)
         }
 
-        def makeClass = ProxyClassMaker.make(it, outDir)
+        def makeClass = ProxyClassMaker.make(it, wetClasses)
 
         def body
         def returnFlag = ''
@@ -87,16 +134,16 @@ class JaopModifier {
             returnFlag = 'return'
         }
 
-        if (Modifier.isStatic(realSrcMethod.modifiers)) {
-            body = "$makeClass.name makeclass = new $makeClass.name(null, \$\$);"
-        } else {
-            body = "$makeClass.name makeclass = new $makeClass.name(\$0, \$\$);"
+        body = "$makeClass.name makeclass = new $makeClass.name();"
+        if (!Modifier.isStatic(realSrcMethod.modifiers)) {
+            body += 'makeclass.target = $0;'
         }
+        body += 'makeclass.args = $args;'
         body += " new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})makeclass);" +
                 (returnFlag == '' ? '' : "return (\$r)makeclass.result;")
 
         if (config.target.handleSubClass) {
-            def cflowField = getCflowField(it.declaringClass.classPool, config)
+            def cflowField = getCflowField(it.declaringClass.classPool, config, wetClasses)
             body = """
                 try {
                     int value = ${cflowField}.value();
@@ -114,64 +161,50 @@ class JaopModifier {
         realSrcMethod.setBody("{$body}")
     }
 
-    static List<CtMethod> callBefore(CtClass ctClass, Config config, File outDir) {
-        ctClass.instrument(new ExprEditor() {
-            @Override
-            void edit(MethodCall m) throws CannotCompileException {
-                if (ClassMatcher.match(m, config.target)) {
-                    def body = "jaop.domain.internal.HookImplForPlugin hook = new jaop.domain.internal.HookImplForPlugin();"
-                    // 静态方法 没有this
-                    if (!m.withinStatic()) {
-                        body += 'hook.callThis = this;'
-                    }
-                    body += "hook.target = \$0;"
-                    body += "hook.args = \$args;"
-                    body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})hook);"
-                    body += '$_ = $proceed($$);'
-                    m.replace(body)
-                }
-            }
-        })
+    static void callBefore(Expr m, Config config, List<CtClass> wetClasses) {
+        def body = "jaop.domain.internal.HookImplForPlugin hook = new jaop.domain.internal.HookImplForPlugin();"
+        // 静态方法 没有this
+        if (!m.withinStatic()) {
+            body += 'hook.callThis = this;'
+        }
+        body += "hook.target = \$0;"
+        body += "hook.args = \$args;"
+        body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})hook);"
+        body += '$_ = $proceed($$);'
+        m.replace(body)
     }
 
-    static List<CtMethod> bodyBefore(CtMethod ctMethod, Config config, File outDir) {
+    static void bodyBefore(CtBehavior ctBehavior, Config config, List<CtClass> wetClasses) {
         def body = "jaop.domain.internal.HookImplForPlugin hook = new jaop.domain.internal.HookImplForPlugin();"
-        if (!Modifier.isStatic(ctMethod.modifiers)) {
+        if (!Modifier.isStatic(ctBehavior.modifiers)) {
             body += "hook.target = \$0;"
         }
         body += "hook.args = \$args;"
         body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})hook);"
         if (config.target.handleSubClass) {
-            body = cflow(ctMethod, body, config)
+            body = cflow(ctBehavior, body, config, wetClasses)
         }
-        ctMethod.insertBefore(body)
+        ctBehavior.insertBefore(body)
     }
 
-    static List<CtMethod> callAfter(CtClass ctClass, Config config, File outDir) {
-        ctClass.instrument(new ExprEditor() {
-            @Override
-            void edit(MethodCall m) throws CannotCompileException {
-                if (ClassMatcher.match(m, config.target)) {
-                    def body = '$_ = $proceed($$);'
-                    body += "jaop.domain.internal.HookImplForPlugin hook = new jaop.domain.internal.HookImplForPlugin();"
-                    // 静态方法 没有this
-                    if (!m.withinStatic()) {
-                        body += 'hook.callThis = this;'
-                    }
-                    body += "hook.target = \$0;"
-                    body += "hook.result = (\$w)\$_;"
-                    body += "hook.args = \$args;"
-                    body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})hook);"
-                    body += "\$_ = (\$r)hook.result;"
-                    m.replace(body)
-                }
-            }
-        })
+    static void callAfter(Expr m, Config config, List<CtClass> wetClasses) {
+        def body = '$_ = $proceed($$);'
+        body += "jaop.domain.internal.HookImplForPlugin hook = new jaop.domain.internal.HookImplForPlugin();"
+        // 静态方法 没有this
+        if (!m.withinStatic()) {
+            body += 'hook.callThis = this;'
+        }
+        body += "hook.target = \$0;"
+        body += "hook.result = (\$w)\$_;"
+        body += "hook.args = \$args;"
+        body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})hook);"
+        body += "\$_ = (\$r)hook.result;"
+        m.replace(body)
     }
 
-    static List<CtMethod> bodyAfter(CtMethod ctMethod, Config config, File outDir) {
+    static void bodyAfter(CtBehavior ctBehavior, Config config, List<CtClass> wetClasses) {
         def body = "jaop.domain.internal.HookImplForPlugin hook = new jaop.domain.internal.HookImplForPlugin();"
-        if (!Modifier.isStatic(ctMethod.modifiers)) {
+        if (!Modifier.isStatic(ctBehavior.modifiers)) {
             body += "hook.target = \$0;"
         }
         body += "hook.result = (\$w)\$_;"
@@ -179,12 +212,12 @@ class JaopModifier {
         body += "new $config.ctMethod.declaringClass.name().$config.ctMethod.name((${config.ctMethod.parameterTypes[0].name})hook);"
         body += "\$_ = (\$r)hook.result;"
         if (config.target.handleSubClass) {
-            body = cflow(ctMethod, body, config)
+            body = cflow(ctBehavior, body, config, wetClasses)
         }
-        ctMethod.insertAfter(body)
+        ctBehavior.insertAfter(body)
     }
 
-    static void bodyBeforeAndAfter(CtMethod ctMethod, Config before, Config after, File outDir) {
+    static void bodyBeforeAndAfter(CtMethod ctMethod, Config before, Config after, List<CtClass> wetClasses) {
         // setbody 没有 $proceed 方法  略微蛋疼
 //        def body = "jaop.domain.internal.HookImplForPlugin hook = new jaop.domain.internal.HookImplForPlugin();"
 //        body += "hook.target = \$0;"
@@ -202,24 +235,29 @@ class JaopModifier {
 //        body += "return (\$r)hook.result;"
 //        ctMethod.setBody("{$body}", ctMethod.declaringClass.name, ctMethod.name)
 
-        bodyBefore(ctMethod, before, outDir)
-        bodyAfter(ctMethod, after, outDir)
+        bodyBefore(ctMethod, before, wetClasses)
+        bodyAfter(ctMethod, after, wetClasses)
     }
 
-    static String cflow(CtMethod ctMethod, String body, Config config) {
-        def fname = getCflowField(ctMethod.declaringClass.classPool, config)
-        ctMethod.insertBefore(fname + ".enter();");
+    static String cflow(CtBehavior ctBehavior, String body, Config config, List<CtClass> wetClasses) {
+        def fname = getCflowField(ctBehavior.declaringClass.classPool, config, wetClasses)
+        ctBehavior.insertBefore(fname + ".enter();");
         String src = fname + ".exit();";
-        ctMethod.insertAfter(src, true);
+        ctBehavior.insertAfter(src, true);
         return "if (${fname}.value() == 0) {$body}"
     }
 
-    static synchronized String getCflowField(ClassPool classPool, Config config) {
+    static synchronized String getCflowField(ClassPool classPool, Config config, List<CtClass> wetClasses) {
+        def cflowImpl = 'jaop.domain.internal.Cflow$Impl'
         def cflowFlag = config.target.value + config.annotation.getClass().getName()
         Object[] cflow = classPool.lookupCflow(cflowFlag)
         def fname
         if (cflow == null) {
-            CtClass cc = classPool.get("jaop.domain.internal.Cflow");
+            CtClass cc = classPool.getOrNull(cflowImpl)
+            if (cc == null) {
+                cc = classPool.makeClass(cflowImpl)
+                wetClasses.add(cc)
+            }
             cc.checkModify();
             int i = 0;
             while (true) {
@@ -232,13 +270,13 @@ class JaopModifier {
                 }
             }
 
-            classPool.recordCflow(cflowFlag, "jaop.domain.internal.Cflow", fname);
+            classPool.recordCflow(cflowFlag, cflowImpl, fname);
             try {
-                CtClass type = cc;
+                CtClass type = classPool.getOrNull("jaop.domain.internal.Cflow");
                 CtField field = new CtField(type, fname, cc);
                 field.setModifiers(Modifier.PUBLIC | Modifier.STATIC);
                 cc.addField(field, CtField.Initializer.byNew(type));
-                fname = "jaop.domain.internal.Cflow." + fname
+                fname = "$cflowImpl.$fname"
                 return fname
             }
             catch (NotFoundException e) {

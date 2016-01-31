@@ -12,7 +12,5 @@ import java.lang.annotation.Target;
 @Retention(RetentionPolicy.CLASS)
 @Target(ElementType.METHOD)
 public @interface Replace {
-//    public String clazz() default "";
-//    public String method() default "";
     public String value();
 }

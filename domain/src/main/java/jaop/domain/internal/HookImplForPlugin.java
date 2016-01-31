@@ -23,7 +23,8 @@ public class HookImplForPlugin implements MethodCallHook {
 
     @Override
     public Object process(Object[] args) throws Throwable {
-        return null;
+        this.args = args;
+        return process();
     }
 
     @Override

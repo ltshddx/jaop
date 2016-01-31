@@ -11,13 +11,24 @@ import com.android.build.gradle.internal.pipeline.TransformManager
 import jaop.domain.annotation.After
 import jaop.domain.annotation.Before
 import jaop.domain.annotation.Replace
+import javassist.CannotCompileException
+import javassist.CtClass
+import javassist.CtConstructor
+import javassist.CtMethod
 import javassist.JaopClassPool
+import javassist.expr.ExprEditor
+import javassist.expr.MethodCall
+import javassist.expr.NewExpr
 import org.gradle.api.Plugin
 import org.gradle.api.Project
+import org.gradle.api.logging.Logger
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ForkJoinPool
 
 class MainTransform extends Transform implements Plugin<Project> {
     Project project
+    static Logger logger
+
     @Override
     void apply(Project target) {
         this.project = target
@@ -25,6 +36,7 @@ class MainTransform extends Transform implements Plugin<Project> {
         project.dependencies {
             compile 'jaop.domain:domain:0.0.5'
         }
+        logger = project.logger
     }
 
     @Override
@@ -62,60 +74,91 @@ class MainTransform extends Transform implements Plugin<Project> {
         def box = TransformFileUtils.toCtClasses(inputs, classPool)
 
         def cost = (System.currentTimeMillis() -startTime) / 1000
-        println "check all class cost $cost second, class count ${box.dryClasses.size()}"
+        println "check all class cost $cost second, class count: ${box.dryClasses.size()}"
 
-        justDoIt(box, outDir)
+        justDoIt(box, outDir.absolutePath)
 
         cost = (System.currentTimeMillis() -startTime) / 1000
-        println "jaop cost $cost second, class count ${box.dryClasses.size()}"
+        println "jaop cost $cost second"
         println '================jaop   end================'
     }
 
-    static void justDoIt(ClassBox box, File outDir) {
+    static void justDoIt(ClassBox box, String outDir) {
         if (box.callConfig.size() == 0 && box.bodyConfig.size() == 0) {
             new ForkJoinPool().submit {
                 box.dryClasses.parallelStream().forEach {
-                    it.writeFile(outDir.absolutePath)
+                    it.writeFile(outDir)
                 }
             }.get()
             return
         }
+
+        List<CtClass> wetClasses = new CopyOnWriteArrayList<CtClass>()
 
         new ForkJoinPool().submit{
             box.dryClasses.parallelStream().forEach { ctClass ->
                 box.callConfig.stream().filter {
                     ctClass != it.ctMethod.declaringClass
                 }.forEach { config ->
-                    if (config.annotation instanceof Replace) {
-                        JaopModifier.callReplace(ctClass, config, outDir)
-                    } else if (config.annotation instanceof Before) {
-                        JaopModifier.callBefore(ctClass, config, outDir)
-                    } else if (config.annotation instanceof After) {
-                        JaopModifier.callAfter(ctClass, config, outDir)
-                    }
+                    ctClass.instrument(new ExprEditor() {
+                        @Override
+                        void edit(MethodCall m) throws CannotCompileException {
+                            if (ClassMatcher.match(m, config.target)) {
+                                if (config.annotation instanceof Replace) {
+                                    JaopModifier.callReplace(m, config, wetClasses)
+                                } else if (config.annotation instanceof Before) {
+                                    JaopModifier.callBefore(m, config, wetClasses)
+                                } else if (config.annotation instanceof After) {
+                                    JaopModifier.callAfter(m, config, wetClasses)
+                                }
+                            }
+                        }
+
+                        @Override
+                        void edit(NewExpr e) throws CannotCompileException {
+                            if (ClassMatcher.match(e.className, 'new', config.target)) {
+                                if (config.annotation instanceof Replace) {
+                                    JaopModifier.callReplaceForConstructor(e, config, wetClasses)
+                                } else if (config.annotation instanceof Before) {
+                                    JaopModifier.callBefore(e, config, wetClasses)
+                                } else if (config.annotation instanceof After) {
+                                    JaopModifier.callAfter(e, config, wetClasses)
+                                }
+                            }
+                        }
+                    })
                 }
 
                 box.bodyConfig.findAll { config ->
                     !config.target.handleSubClass || ClassMatcher.chechSuperclass(ctClass, config.target.className)
                 }.each { config ->
-                    ctClass.declaredMethods.findAll {
-                        (config.target.handleSubClass && config.target.methodName == it.name) ||
-                                ClassMatcher.match(ctClass.name, it.name, config.target)
-                    }.each { ctMethod ->
+                    ctClass.declaredBehaviors.findAll {
+                        def methodName = it.name
+                        if (methodName == ctClass.getSimpleName()) {
+                            methodName = 'new'
+                        }
+                        return (config.target.handleSubClass && config.target.methodName == methodName) ||
+                                ClassMatcher.match(ctClass.name, methodName, config.target)
+                    }.each { ctBehavior ->
                         if (config.annotation instanceof Replace) {
-                            JaopModifier.bodyReplace(ctMethod, config, outDir)
+                            if (ctBehavior instanceof CtMethod)
+                                JaopModifier.bodyReplace(ctBehavior, config, wetClasses)
+                            else if(ctBehavior instanceof CtConstructor)
+                                JaopModifier.bodyReplaceForConstructor(ctBehavior, config, wetClasses)
                         } else if (config.annotation instanceof Before) {
-                            JaopModifier.bodyBefore(ctMethod, config, outDir)
+                            JaopModifier.bodyBefore(ctBehavior, config, wetClasses)
                         } else if (config.annotation instanceof After) {
-                            JaopModifier.bodyAfter(ctMethod, config, outDir)
+                            JaopModifier.bodyAfter(ctBehavior, config, wetClasses)
                         }
                     }
                 }
-                if (ctClass.name != "jaop.domain.internal.Cflow")
-                    ctClass.writeFile(outDir.absolutePath)
+                ctClass.writeFile(outDir)
             }
         }.get()
-        box.dryClasses.get(0).classPool.get("jaop.domain.internal.Cflow").writeFile(outDir.absolutePath)
+        println "jaop create new class count: " + wetClasses.size()
+        wetClasses.each {
+            it.writeFile(outDir)
+        }
     }
 
 }

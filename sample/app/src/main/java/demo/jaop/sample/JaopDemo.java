@@ -30,7 +30,7 @@ public class JaopDemo {
     @Replace("android.widget.Toast.makeText")
     public void replace2(MethodCallHook hook) {
         Object[] args = hook.getArgs();
-        hook.setResult(Toast.makeText((Context)args[0], "hook toast", Toast.LENGTH_LONG));
+        hook.setResult(Toast.makeText((Context) args[0], "hook toast", Toast.LENGTH_LONG));
     }
 
 
@@ -58,6 +58,17 @@ public class JaopDemo {
     public void replace5(MethodCallHook hook) {
         Log.e("JaopDemo", "Foo=5");
     }
+
+    @Replace("demo.jaop.sample.Zoo.new")
+    public void replace51(MethodCallHook hook) {
+        Log.e("JaopDemo", "Zoo new=51");
+        try {
+            hook.process();
+        } catch (Throwable throwable) {
+            throwable.printStackTrace();
+        }
+    }
+
     @Replace("demo.jaop.sample.Zoo.say")
     public void replace6(MethodCallHook hook) {
         Log.e("JaopDemo", "Foo=6");
