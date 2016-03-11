@@ -25,10 +25,10 @@ public class JaopDemo {
         button.setText("text replace by jaop");
     }
 
-    @Replace("android.widget.Toast.makeText") // hook 掉onCreate 方法的调用处
+    @Replace("android.widget.Toast.makeText") // hook Toast makeText 方法的调用处, 替换toast的文本
     public void replace2(MethodCallHook hook) {
         Object[] args = hook.getArgs();
-        hook.setResult(Toast.makeText((Context)args[0], "hoock toast", Toast.LENGTH_LONG)); // 设置返回值
+        hook.setResult(Toast.makeText((Context)args[0], "hook toast", Toast.LENGTH_LONG)); // 设置返回值
     }
 }
 ```
