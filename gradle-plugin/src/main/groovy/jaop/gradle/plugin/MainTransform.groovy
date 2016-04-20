@@ -16,12 +16,16 @@ import javassist.CtClass
 import javassist.CtConstructor
 import javassist.CtMethod
 import javassist.JaopClassPool
+import javassist.bytecode.AccessFlag
+import javassist.bytecode.SyntheticAttribute
 import javassist.expr.ExprEditor
 import javassist.expr.MethodCall
 import javassist.expr.NewExpr
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.logging.Logger
+
+import java.lang.reflect.Modifier
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.ForkJoinPool
 
@@ -133,6 +137,10 @@ class MainTransform extends Transform implements Plugin<Project> {
                     !config.target.handleSubClass || ClassMatcher.chechSuperclass(ctClass, config.target.className)
                 }.each { config ->
                     ctClass.declaredBehaviors.findAll {
+                        // synthetic 方法暂时不aop 比如AsyncTask 会生成一些同名 synthetic方法
+                        if ((it.getModifiers() & AccessFlag.SYNTHETIC) != 0) {
+                            return false
+                        }
                         def methodName = it.name
                         if (methodName == ctClass.getSimpleName()) {
                             methodName = 'new'
