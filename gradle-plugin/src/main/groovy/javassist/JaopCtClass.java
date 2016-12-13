@@ -36,4 +36,24 @@ public class JaopCtClass extends CtClassType {
 //        super.compress();
         // not do it
     }
+
+    @Override
+    public Object getAnnotation(Class clz) throws ClassNotFoundException {
+        try {
+            return super.getAnnotation(clz);
+        } catch (Exception e) {
+            // ignore
+        }
+        return null;
+    }
+
+    @Override
+    public CtBehavior[] getDeclaredBehaviors() {
+        try {
+            return super.getDeclaredBehaviors();
+        } catch (Exception e) {
+            // ignore
+        }
+        return new CtBehavior[0];
+    }
 }
