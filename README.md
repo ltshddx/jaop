@@ -9,7 +9,7 @@ repositories {
 }
 dependencies {
     classpath 'com.android.tools.build:gradle:1.5.0' // 需要1.5的plugin
-    classpath 'jaop.gradle.plugin:gradle-plugin:0.0.6'  
+    classpath 'jaop.gradle.plugin:gradle-plugin:0.0.7'
 }
 
 apply plugin: 'jaop'

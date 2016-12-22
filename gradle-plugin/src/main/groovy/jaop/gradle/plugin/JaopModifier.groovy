@@ -38,7 +38,7 @@ class JaopModifier {
         if (m.isSuper()) {
             // 如果要hook一个 super. 的方法，不能用常规方法，先将这个super. 封装成其他方法
             // 然后就当这里是那个封装的方法
-            def methodName = "${m.methodName}_from_super_for_jaop_${m.method.hashCode()}"
+            def methodName = "${m.methodName}_from_super_for_jaop_${m.method.hashCode()}".replace('-', '_')
             CtMethod superMethod
             try {
                 superMethod = m.enclosingClass.getDeclaredMethod(methodName, m.method.parameterTypes)
