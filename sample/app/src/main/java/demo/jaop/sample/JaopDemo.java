@@ -8,6 +8,7 @@ import android.widget.Toast;
 
 import jaop.domain.MethodBodyHook;
 import jaop.domain.MethodCallHook;
+import jaop.domain.annotation.Before;
 import jaop.domain.annotation.Jaop;
 import jaop.domain.annotation.Replace;
 
@@ -44,8 +45,8 @@ public class JaopDemo {
         Log.e("JaopDemo", "onCreate");
     }
 
-    @Replace("android.app.Activity.getActionBar")
-    public void replace4(MethodCallHook hook) {
+    @Replace("android.app.Activity+.getActionBar")
+    public void replace4(MethodBodyHook hook) {
         try {
             hook.process();
         } catch (Throwable throwable) {

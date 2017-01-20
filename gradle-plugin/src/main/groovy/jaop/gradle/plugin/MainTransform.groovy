@@ -11,22 +11,24 @@ import com.android.build.gradle.internal.pipeline.TransformManager
 import jaop.domain.annotation.After
 import jaop.domain.annotation.Before
 import jaop.domain.annotation.Replace
+import jaop.gradle.plugin.asm.BodyReplaceUtil
+import jaop.gradle.plugin.asm.CallReplaceForConstructorUtil
+import jaop.gradle.plugin.asm.CallReplaceUtil
 import javassist.CannotCompileException
 import javassist.CtClass
 import javassist.CtConstructor
 import javassist.CtMethod
 import javassist.JaopClassPool
 import javassist.bytecode.AccessFlag
-import javassist.bytecode.SyntheticAttribute
 import javassist.expr.ExprEditor
 import javassist.expr.MethodCall
 import javassist.expr.NewExpr
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.logging.Logger
 
-import java.lang.reflect.Modifier
-import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ForkJoinPool
 
 class MainTransform extends Transform implements Plugin<Project> {
@@ -97,7 +99,9 @@ class MainTransform extends Transform implements Plugin<Project> {
             return
         }
 
-        List<CtClass> wetClasses = new CopyOnWriteArrayList<CtClass>()
+        Map<MethodCall, Config> methodCallMap = new HashMap<>()
+        Map<MethodCall, Config> newExprMap = new HashMap<>()
+        Map<CtMethod, Config> bodyMap = new HashMap<>()
 
         new ForkJoinPool().submit{
             box.dryClasses.parallelStream().forEach { ctClass ->
@@ -109,11 +113,12 @@ class MainTransform extends Transform implements Plugin<Project> {
                         void edit(MethodCall m) throws CannotCompileException {
                             if (ClassMatcher.match(m, config.target)) {
                                 if (config.annotation instanceof Replace) {
-                                    JaopModifier.callReplace(m, config, wetClasses)
+//                                    JaopModifier.callReplace(m, config, wetClasses)
+                                    methodCallMap.put(m, config)
                                 } else if (config.annotation instanceof Before) {
-                                    JaopModifier.callBefore(m, config, wetClasses)
+                                    JaopModifier.callBefore(m, config)
                                 } else if (config.annotation instanceof After) {
-                                    JaopModifier.callAfter(m, config, wetClasses)
+                                    JaopModifier.callAfter(m, config)
                                 }
                             }
                         }
@@ -122,11 +127,12 @@ class MainTransform extends Transform implements Plugin<Project> {
                         void edit(NewExpr e) throws CannotCompileException {
                             if (ClassMatcher.match(e.className, 'new', config.target)) {
                                 if (config.annotation instanceof Replace) {
-                                    JaopModifier.callReplaceForConstructor(e, config, wetClasses)
+//                                    JaopModifier.callReplaceForConstructor(e, config, wetClasses)
+                                    newExprMap.put(e, config)
                                 } else if (config.annotation instanceof Before) {
-                                    JaopModifier.callBefore(e, config, wetClasses)
+                                    JaopModifier.callBefore(e, config)
                                 } else if (config.annotation instanceof After) {
-                                    JaopModifier.callAfter(e, config, wetClasses)
+                                    JaopModifier.callAfter(e, config)
                                 }
                             }
                         }
@@ -150,21 +156,39 @@ class MainTransform extends Transform implements Plugin<Project> {
                     }.each { ctBehavior ->
                         if (config.annotation instanceof Replace) {
                             if (ctBehavior instanceof CtMethod)
-                                JaopModifier.bodyReplace(ctBehavior, config, wetClasses)
+//                                JaopModifier.bodyReplace(ctBehavior, config, wetClasses)
+                                bodyMap.put(ctBehavior, config)
                             else if(ctBehavior instanceof CtConstructor)
-                                JaopModifier.bodyReplaceForConstructor(ctBehavior, config, wetClasses)
+//                                JaopModifier.bodyReplaceForConstructor(ctBehavior, config, wetClasses)
+                                throw new GradleException("you can not repalce a constructor, it is very dangerous")
                         } else if (config.annotation instanceof Before) {
-                            JaopModifier.bodyBefore(ctBehavior, config, wetClasses)
+                            JaopModifier.bodyBefore(ctBehavior, config)
                         } else if (config.annotation instanceof After) {
-                            JaopModifier.bodyAfter(ctBehavior, config, wetClasses)
+                            JaopModifier.bodyAfter(ctBehavior, config)
                         }
                     }
                 }
                 ctClass.writeFile(outDir)
             }
         }.get()
-        println "jaop create new class count: " + wetClasses.size()
-        wetClasses.each {
+
+        ConcurrentHashMap<String, CtClass> asmMap = new ConcurrentHashMap<>()
+        methodCallMap.entrySet().each { entry ->
+            def newClass = CallReplaceUtil.doit(entry.key, entry.value)
+            asmMap.put(newClass.getName(), newClass)
+        }
+
+        newExprMap.entrySet().each { entry ->
+            def newClass = CallReplaceForConstructorUtil.doit(entry.key, entry.value)
+            asmMap.put(newClass.getName(), newClass)
+        }
+
+        bodyMap.entrySet().each {
+            def newClass = BodyReplaceUtil.doit(it.key, it.value)
+            asmMap.put(newClass.getName(), newClass)
+        }
+
+        asmMap.values().each {
             it.writeFile(outDir)
         }
     }

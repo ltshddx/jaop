@@ -99,6 +99,29 @@ class TransformFileUtils {
                     if (!Modifier.isPublic(it.modifiers)) {
                         it.setModifiers(Modifier.setPublic(it.modifiers))
                     }
+
+                    // 把cflow写在config method里面
+                    if (config.target.handleSubClass && config.annotation instanceof Replace) {
+                        def returnFlag = "return;"
+                        if (it.returnType != CtClass.voidType) {
+                            returnFlag = "return \$1.getResult();"
+                        }
+                        def cflowField = JaopModifier.getCflowField(classPool, config)
+                        it.insertBefore("""
+                                int jaophaonb = ${cflowField}.value();
+                                ${cflowField}.enter();
+                                if (jaophaonb != 0) {
+                                    \$1.process();
+                                    ${returnFlag}
+                                }
+                                """)
+                        it.insertAfter("${cflowField}.exit();", true)
+                    }
+                }
+            }
+            ctClass.fields.each {
+                if (!Modifier.isPublic(it.modifiers)) {
+                    it.setModifiers(Modifier.setPublic(it.modifiers))
                 }
             }
         }
