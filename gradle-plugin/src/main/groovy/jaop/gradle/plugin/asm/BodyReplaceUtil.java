@@ -163,7 +163,7 @@ public class BodyReplaceUtil {
         }
         srcMethod.tryCatchBlocks.addAll(bodyConfig.tryCatchBlocks);
 
-        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_FRAMES + ClassWriter.COMPUTE_MAXS);
+        ClassWriter writer = new JaopClassWriter(ClassWriter.COMPUTE_FRAMES + ClassWriter.COMPUTE_MAXS, classPool);
         classNode.accept(writer);
         byte[] bytes = writer.toByteArray();
         return classPool.makeClass(new ByteArrayInputStream(bytes), false);
