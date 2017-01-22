@@ -1,5 +1,6 @@
 package jaop.gradle.plugin.asm;
 
+import org.gradle.api.GradleException;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -62,9 +63,9 @@ public class BodyReplaceUtil {
         newIterator.add(new VarInsnNode(Opcodes.ASTORE, srcMethod.maxLocals + configSize));
 
         if (targetSize == 1) {
-            newIterator.add(new VarInsnNode(Opcodes.ALOAD, srcMethod.maxLocals + configSize));
-            newIterator.add(new VarInsnNode(Opcodes.ALOAD, 0));
-            newIterator.add(new FieldInsnNode(Opcodes.PUTFIELD, "jaop/domain/internal/HookImplForPlugin", "callThis", "Ljava/lang/Object;"));
+//            newIterator.add(new VarInsnNode(Opcodes.ALOAD, srcMethod.maxLocals + configSize));
+//            newIterator.add(new VarInsnNode(Opcodes.ALOAD, 0));
+//            newIterator.add(new FieldInsnNode(Opcodes.PUTFIELD, "jaop/domain/internal/HookImplForPlugin", "callThis", "Ljava/lang/Object;"));
 
             newIterator.add(new VarInsnNode(Opcodes.ALOAD, srcMethod.maxLocals + configSize));
             newIterator.add(new VarInsnNode(Opcodes.ALOAD, 0));
@@ -111,12 +112,33 @@ public class BodyReplaceUtil {
                 if (lineNumberNod.line < 15536) {
                     lineNumberNod.line += 50000;
                 }
+            } else if (next instanceof MethodInsnNode &&
+                    ((MethodInsnNode) next).owner.equals(bodyConfig.name) &&
+                    !((MethodInsnNode) next).name.equals("<init>") &&
+                    next.getOpcode() == Opcodes.INVOKESPECIAL) {
+                throw new GradleException("in-line jaop config method must be public: "+ bodyConfig.name + "/" + ((MethodInsnNode) next).name);
             } else if (next instanceof IincInsnNode) {
                 IincInsnNode varInsnNode = (IincInsnNode) next;
                 varInsnNode.var += srcMethod.maxLocals;
             } else if (next instanceof MethodInsnNode &&
                     ((MethodInsnNode) next).name.equals("process") &&
                     ((MethodInsnNode) next).owner.equals("jaop/domain/MethodBodyHook")) {
+                ASMHelper.ParamTypeLsit processArgTypes = ASMHelper.getArgTypes(((MethodInsnNode) next).desc);
+                if (processArgTypes.size() == 1) {
+                    // process args
+                    localIndex = 0;
+                    arrayIndex = 0;
+                    for (ASMHelper.ParamTypeItem item : params) {
+                        newIterator.add(new InsnNode(Opcodes.DUP));
+                        ASMHelper.intInsnNode(newIterator, arrayIndex);
+                        newIterator.add(new InsnNode(Opcodes.AALOAD));
+                        ASMHelper.parseToBase(newIterator, item.name);
+                        ASMHelper.storeNode(newIterator, item.name, targetSize + localIndex);
+                        localIndex += item.length;
+                        arrayIndex ++;
+                    }
+                    newIterator.add(new InsnNode(Opcodes.POP));
+                }
                 newIterator.add(new InsnNode(Opcodes.POP));
                 if (srcInsnList == null) {
                     srcInsnList = ASMHelper.getMethod(ASMHelper.getClassNode(srcBytes), ctMethod.getName()).instructions;

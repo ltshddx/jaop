@@ -17,7 +17,7 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         findViewById(R.id.button).setOnClickListener(this);
         getActionBar();
 
-        Foo f = new Zoo();
+        Foo f = new Zoo("123");
         f.say();
     }
 

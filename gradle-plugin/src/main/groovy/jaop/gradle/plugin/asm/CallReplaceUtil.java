@@ -1,5 +1,6 @@
 package jaop.gradle.plugin.asm;
 
+import org.gradle.api.GradleException;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -51,7 +52,8 @@ public class CallReplaceUtil {
                 MethodInsnNode methodInsnNode = (MethodInsnNode) srcNext;
 //                if (methodInsnNode.owner.equals(config.getTarget().className.replace(".", "/")) && methodInsnNode.name.equals(config.getTarget().methodName)) {
                 if ((methodInsnNode.owner + "/" + methodInsnNode.name).equals(config.getTarget().value.replace(".", "/"))) {
-                    MethodNode call = ASMHelper.getMethod(ASMHelper.getClassNode(configMethod.getDeclaringClass().toBytecode()), configMethod.getName());
+                    ClassNode callClass = ASMHelper.getClassNode(configMethod.getDeclaringClass().toBytecode());
+                    MethodNode call = ASMHelper.getMethod(callClass, configMethod.getName());
                     ASMHelper.ParamTypeLsit params = ASMHelper.getArgTypes(methodInsnNode.desc);
                     String returnType = ASMHelper.getReturnType(methodInsnNode.desc).name;
                     int targetSize = (methodInsnNode.getOpcode() == Opcodes.INVOKESTATIC) ? 0 : 1;
@@ -144,9 +146,30 @@ public class CallReplaceUtil {
                                 lineNumberNod.line += 50000;
                             }
                         } else if (next instanceof MethodInsnNode &&
+                                ((MethodInsnNode) next).owner.equals(callClass.name) &&
+                                !((MethodInsnNode) next).name.equals("<init>") &&
+                                next.getOpcode() == Opcodes.INVOKESPECIAL) {
+                            throw new GradleException("in-line jaop config method must be public: "+ callClass.name + "/" + ((MethodInsnNode) next).name);
+                        } else if (next instanceof MethodInsnNode &&
                                 ((MethodInsnNode) next).name.equals("process") &&
                                 ((MethodInsnNode) next).owner.equals("jaop/domain/MethodCallHook")) {
                             // 这里把process调用的地方替换成原方法 先把MethodCallHook 复制一份 后面用来put result
+                            ASMHelper.ParamTypeLsit processArgTypes = ASMHelper.getArgTypes(((MethodInsnNode) next).desc);
+                            if (processArgTypes.size() == 1) {
+                                // process args
+                                localIndex = 0;
+                                arrayIndex = 0;
+                                for (ASMHelper.ParamTypeItem item : params) {
+                                    srcIterator.add(new InsnNode(Opcodes.DUP));
+                                    ASMHelper.intInsnNode(srcIterator, arrayIndex);
+                                    srcIterator.add(new InsnNode(Opcodes.AALOAD));
+                                    ASMHelper.parseToBase(srcIterator, item.name);
+                                    ASMHelper.storeNode(srcIterator, item.name, inWhichMethod.maxLocals + targetSize + localIndex);
+                                    localIndex += item.length;
+                                    arrayIndex ++;
+                                }
+                                srcIterator.add(new InsnNode(Opcodes.POP));
+                            }
                             srcIterator.add(new InsnNode(Opcodes.DUP));
                             if (targetSize == 1) {
                                 srcIterator.add(new VarInsnNode(Opcodes.ALOAD, inWhichMethod.maxLocals));

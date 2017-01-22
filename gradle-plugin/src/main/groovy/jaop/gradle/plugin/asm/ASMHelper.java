@@ -269,9 +269,12 @@ public class ASMHelper {
 
     public static MethodNode getMethod(ClassNode classNode, String method) {
         Iterator methodIterator = classNode.methods.iterator();
+        boolean isConstructor = classNode.name.endsWith("/" + method);
         while (methodIterator.hasNext()) {
             MethodNode methodNode = (MethodNode) methodIterator.next();
-            if (methodNode.name.equals(method)) {
+            if (isConstructor && methodNode.name.equals("<init>")) {
+                return methodNode;
+            } else if (!isConstructor && methodNode.name.equals(method)) {
                 return methodNode;
             }
         }

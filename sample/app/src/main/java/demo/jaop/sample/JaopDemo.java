@@ -31,7 +31,12 @@ public class JaopDemo {
     @Replace("android.widget.Toast.makeText")
     public void replace2(MethodCallHook hook) {
         Object[] args = hook.getArgs();
-        hook.setResult(Toast.makeText((Context) args[0], "hook toast", Toast.LENGTH_LONG));
+//        hook.setResult(Toast.makeText((Context) args[0], "hook toast", Toast.LENGTH_LONG));
+        try {
+            hook.process(new Object[] {args[0], "hook toast", args[2]});
+        } catch (Throwable throwable) {
+            throwable.printStackTrace();
+        }
     }
 
 

@@ -1,5 +1,6 @@
 package jaop.gradle.plugin.asm;
 
+import org.gradle.api.GradleException;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.AbstractInsnNode;
@@ -53,6 +54,7 @@ public class CallReplaceForConstructorUtil {
             if (srcNext instanceof TypeInsnNode) {
                 TypeInsnNode typeInsnNode = (TypeInsnNode) srcNext;
                 if (typeInsnNode.getOpcode() == Opcodes.NEW && typeInsnNode.desc.equals(configTargetClass)) {
+                    System.out.println("new " + configTargetClass);
                     srcIterator.remove();
                     srcIterator.next();
                     srcIterator.remove();
@@ -60,30 +62,32 @@ public class CallReplaceForConstructorUtil {
             } else if (srcNext instanceof MethodInsnNode) {
                 MethodInsnNode methodInsnNode = (MethodInsnNode) srcNext;
                 if ((methodInsnNode.owner + "/" + methodInsnNode.name).equals(configTargetClass + "/<init>")) {
-                    MethodNode call = ASMHelper.getMethod(ASMHelper.getClassNode(configMethod.getDeclaringClass().toBytecode()), configMethod.getName());
+                    ClassNode callClass = ASMHelper.getClassNode(configMethod.getDeclaringClass().toBytecode());
+                    MethodNode call = ASMHelper.getMethod(callClass, configMethod.getName());
                     ASMHelper.ParamTypeLsit params = ASMHelper.getArgTypes(methodInsnNode.desc);
                     srcIterator.remove();
                     Iterator<ASMHelper.ParamTypeItem> descendingIterator = params.descendingIterator();
                     int cao1 = params.size();
+                    int targetSize = 1;
                     while (descendingIterator.hasNext()) {
                         ASMHelper.ParamTypeItem next = descendingIterator.next();
                         cao1 -= next.length;
-                        ASMHelper.storeNode(srcIterator, next.name, inWhichMethod.maxLocals + cao1);
+                        ASMHelper.storeNode(srcIterator, next.name, inWhichMethod.maxLocals + targetSize + cao1);
                     }
 
                     int configSize = (call.access & Opcodes.ACC_STATIC) > 0 ? 0 : 1;
                     if (configSize == 1) {
                         ASMHelper.newInstance(srcIterator, configMethod.getDeclaringClass().getName().replace(".", "/"));
-                        srcIterator.add(new VarInsnNode(Opcodes.ASTORE, inWhichMethod.maxLocals + params.size()));
+                        srcIterator.add(new VarInsnNode(Opcodes.ASTORE, inWhichMethod.maxLocals + targetSize + params.size()));
                     }
                     ASMHelper.newInstance(srcIterator, "jaop/domain/internal/HookImplForPlugin");
-                    srcIterator.add(new VarInsnNode(Opcodes.ASTORE, inWhichMethod.maxLocals + params.size() + configSize));
+                    srcIterator.add(new VarInsnNode(Opcodes.ASTORE, inWhichMethod.maxLocals + targetSize + params.size() + configSize));
                     if ((inWhichMethod.access & Opcodes.ACC_STATIC) == 0) {
-                        srcIterator.add(new VarInsnNode(Opcodes.ALOAD, inWhichMethod.maxLocals + params.size() + configSize));
+                        srcIterator.add(new VarInsnNode(Opcodes.ALOAD, inWhichMethod.maxLocals + targetSize + params.size() + configSize));
                         srcIterator.add(new VarInsnNode(Opcodes.ALOAD, 0));
                         srcIterator.add(new FieldInsnNode(Opcodes.PUTFIELD, "jaop/domain/internal/HookImplForPlugin", "callThis", "Ljava/lang/Object;"));
                     }
-                    srcIterator.add(new VarInsnNode(Opcodes.ALOAD, inWhichMethod.maxLocals + params.size() + configSize));
+                    srcIterator.add(new VarInsnNode(Opcodes.ALOAD, inWhichMethod.maxLocals + targetSize + params.size() + configSize));
                     ASMHelper.intInsnNode(srcIterator, params.itemSize());
                     srcIterator.add(new TypeInsnNode(Opcodes.ANEWARRAY, "java/lang/Object"));
                     int localIndex = 0, arrayIndex = 0;
@@ -91,7 +95,7 @@ public class CallReplaceForConstructorUtil {
                         // 把参数存到数组
                         srcIterator.add(new InsnNode(Opcodes.DUP));
                         ASMHelper.intInsnNode(srcIterator, arrayIndex);
-                        ASMHelper.loadNode(srcIterator, param.name, inWhichMethod.maxLocals + localIndex);
+                        ASMHelper.loadNode(srcIterator, param.name, inWhichMethod.maxLocals + targetSize + localIndex);
                         ASMHelper.baseToObj(srcIterator, param.name);
                         srcIterator.add(new InsnNode(Opcodes.AASTORE));
                         localIndex += param.length;
@@ -133,30 +137,55 @@ public class CallReplaceForConstructorUtil {
                             lastLabelNode = (LabelNode) next;
                         } else if (next instanceof VarInsnNode) {
                             VarInsnNode varInsnNode = (VarInsnNode) next;
-                            varInsnNode.var += (inWhichMethod.maxLocals + params.size());
+                            varInsnNode.var += (inWhichMethod.maxLocals + targetSize + params.size());
                         } else if (next instanceof IincInsnNode) {
                             IincInsnNode varInsnNode = (IincInsnNode) next;
-                            varInsnNode.var += (inWhichMethod.maxLocals + params.size());
+                            varInsnNode.var += (inWhichMethod.maxLocals + targetSize + params.size());
                         } else if (next instanceof LineNumberNode) {
                             LineNumberNode lineNumberNod = (LineNumberNode) next;
                             if (lineNumberNod.line < 15536) {
                                 lineNumberNod.line += 50000;
                             }
                         } else if (next instanceof MethodInsnNode &&
+                                ((MethodInsnNode) next).owner.equals(callClass.name) &&
+                                !((MethodInsnNode) next).name.equals("<init>") &&
+                                next.getOpcode() == Opcodes.INVOKESPECIAL) {
+                            throw new GradleException("in-line jaop config method must be public: "+ callClass.name + "/" + ((MethodInsnNode) next).name);
+                        } else if (next instanceof MethodInsnNode &&
                                 ((MethodInsnNode) next).name.equals("process") &&
                                 ((MethodInsnNode) next).owner.equals("jaop/domain/MethodCallHook")) {
+                            // stack top is hook or hook&args_array
+//                            ASMHelper.ParamTypeLsit processArgTypes = ASMHelper.getArgTypes(((MethodInsnNode) next).desc);
+//                            if (processArgTypes.size() == 1) {
+//                                // process args
+//                                localIndex = 0;
+//                                arrayIndex = 0;
+//                                for (ASMHelper.ParamTypeItem item : params) {
+//                                    System.out.println("save " + item.name);
+//                                    srcIterator.add(new InsnNode(Opcodes.DUP));
+//                                    ASMHelper.intInsnNode(srcIterator, arrayIndex);
+//                                    srcIterator.add(new InsnNode(Opcodes.AALOAD));
+//                                    ASMHelper.parseToBase(srcIterator, item.name);
+//                                    ASMHelper.storeNode(srcIterator, item.name, inWhichMethod.maxLocals + targetSize + localIndex);
+//                                    localIndex += item.length;
+//                                    arrayIndex ++;
+//                                }
+//                                srcIterator.add(new InsnNode(Opcodes.POP));
+//                            }
                             // stack top is hook
                             srcIterator.add(new TypeInsnNode(Opcodes.NEW, configTargetClass));
                             srcIterator.add(new InsnNode(Opcodes.DUP));
+//                            srcIterator.add(new InsnNode(Opcodes.DUP));
+//                            srcIterator.add(new VarInsnNode(Opcodes.ASTORE, inWhichMethod.maxLocals));
                             int cao2 = 0;
                             for (ASMHelper.ParamTypeItem item : params) {
-                                ASMHelper.loadNode(srcIterator, item.name, inWhichMethod.maxLocals + cao2);
+                                ASMHelper.loadNode(srcIterator, item.name, inWhichMethod.maxLocals + targetSize + cao2);
                                 cao2 += item.length;
                             }
                             MethodInsnNode newSrcMethod = new MethodInsnNode(methodInsnNode.getOpcode(), methodInsnNode.owner, methodInsnNode.name, methodInsnNode.desc, methodInsnNode.itf);
                             srcIterator.add(newSrcMethod);
                             srcIterator.add(new FieldInsnNode(Opcodes.PUTFIELD, "jaop/domain/internal/HookImplForPlugin", "result", "Ljava/lang/Object;"));
-                            srcIterator.add(new VarInsnNode(Opcodes.ALOAD, inWhichMethod.maxLocals + params.size() + configSize));
+                            srcIterator.add(new VarInsnNode(Opcodes.ALOAD, inWhichMethod.maxLocals + targetSize + params.size() + configSize));
                             srcIterator.add(new FieldInsnNode(Opcodes.GETFIELD, "jaop/domain/internal/HookImplForPlugin", "result", "Ljava/lang/Object;"));
                             continue;
                         }
@@ -167,11 +196,11 @@ public class CallReplaceForConstructorUtil {
                     }
                     inWhichMethod.tryCatchBlocks.addAll(call.tryCatchBlocks);
                     // 如果之前有返回值 把result还给它
-                    srcIterator.add(new VarInsnNode(Opcodes.ALOAD, inWhichMethod.maxLocals + params.size() + configSize));
+                    srcIterator.add(new VarInsnNode(Opcodes.ALOAD, inWhichMethod.maxLocals + targetSize + params.size() + configSize));
                     srcIterator.add(new FieldInsnNode(Opcodes.GETFIELD, "jaop/domain/internal/HookImplForPlugin", "result", "Ljava/lang/Object;"));
 
 //                    print1.maxLocals += (call.maxLocals + targetSize + params.size());
-                    inWhichMethod.maxStack += call.maxStack;
+//                    inWhichMethod.maxStack += call.maxStack;
                 }
             }
         }
