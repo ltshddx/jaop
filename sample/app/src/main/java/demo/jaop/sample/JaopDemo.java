@@ -6,6 +6,8 @@ import android.util.Log;
 import android.widget.Button;
 import android.widget.Toast;
 
+import java.util.ArrayList;
+
 import jaop.domain.MethodBodyHook;
 import jaop.domain.MethodCallHook;
 import jaop.domain.annotation.Before;
@@ -53,7 +55,8 @@ public class JaopDemo {
     @Replace("android.app.Activity+.getActionBar")
     public void replace4(MethodBodyHook hook) {
         try {
-            hook.process();
+            ArrayList list = new ArrayList();
+            list.add(hook.process());
         } catch (Throwable throwable) {
 
         }
@@ -69,7 +72,7 @@ public class JaopDemo {
     public void replace51(MethodCallHook hook) {
         Log.e("JaopDemo", "Zoo new=51");
         try {
-            hook.process();
+            hook.process(new Object[] {"678"});
         } catch (Throwable throwable) {
             throwable.printStackTrace();
         }

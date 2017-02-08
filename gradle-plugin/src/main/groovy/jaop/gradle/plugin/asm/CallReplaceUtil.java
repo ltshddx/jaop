@@ -3,6 +3,7 @@ package jaop.gradle.plugin.asm;
 import org.gradle.api.GradleException;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.commons.AnalyzerAdapter;
 import org.objectweb.asm.tree.AbstractInsnNode;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.FieldInsnNode;
@@ -44,6 +45,8 @@ public class CallReplaceUtil {
         }
 
         CtMethod configMethod = config.getCtMethod();
+        AnalyzerAdapter analyzerAdapter = new AnalyzerAdapter(null,
+                inWhichMethod.access, inWhichMethod.name, inWhichMethod.desc, null);
 
         ListIterator<AbstractInsnNode> srcIterator = inWhichMethod.instructions.iterator();
         while (srcIterator.hasNext()) {
@@ -67,6 +70,18 @@ public class CallReplaceUtil {
                     }
                     if (targetSize == 1) {
                         srcIterator.add(new VarInsnNode(Opcodes.ASTORE, inWhichMethod.maxLocals));
+                    }
+
+                    // 把stack清空 不然计算stackmaptable 会有问题
+                    int stackLeft = analyzerAdapter.stack == null ? 0 : analyzerAdapter.stack.size() - params.size() - targetSize;
+                    for (int i = stackLeft; i > 0;) {
+                        i --;
+                        Object o = analyzerAdapter.stack.get(i);
+                        if (ASMHelper.getSize(o) == 2) {
+                            i --;
+                            o = analyzerAdapter.stack.get(i);
+                        }
+                        ASMHelper.storeNode(srcIterator, o, inWhichMethod.maxLocals + targetSize + params.size() + call.maxLocals + i);
                     }
 
                     int configSize = (call.access & Opcodes.ACC_STATIC) > 0 ? 0 : 1;
@@ -196,6 +211,12 @@ public class CallReplaceUtil {
                         node.label = lastLabelNode;
                     }
                     inWhichMethod.tryCatchBlocks.addAll(call.tryCatchBlocks);
+                    // 补全stack
+                    for (int i = 0; i < stackLeft;) {
+                        Object o = analyzerAdapter.stack.get(i);
+                        ASMHelper.loadNode(srcIterator, o, inWhichMethod.maxLocals + targetSize + params.size() + call.maxLocals + i);
+                        i += ASMHelper.getSize(o);
+                    }
                     if (!"V".equals(returnType)) {
                         // 如果之前有返回值 把result还给它
                         srcIterator.add(new VarInsnNode(Opcodes.ALOAD, inWhichMethod.maxLocals + targetSize + params.size() + configSize));
@@ -207,6 +228,7 @@ public class CallReplaceUtil {
 //                    print1.maxStack += (call.maxStack + 1);
                 }
             }
+            srcNext.accept(analyzerAdapter);
         }
 
         ClassWriter writer = new JaopClassWriter(ClassWriter.COMPUTE_FRAMES + ClassWriter.COMPUTE_MAXS, classPool);

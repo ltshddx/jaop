@@ -8,6 +8,8 @@ import android.util.Log;
 import android.view.View;
 import android.widget.Toast;
 
+import java.util.ArrayList;
+
 public class MainActivity extends AppCompatActivity implements View.OnClickListener {
 
     @Override
@@ -17,19 +19,27 @@ public class MainActivity extends AppCompatActivity implements View.OnClickListe
         findViewById(R.id.button).setOnClickListener(this);
         getActionBar();
 
-        Foo f = new Zoo("123");
-        f.say();
+        ArrayList list = new ArrayList();
+        list.add(new Zoo("312"));
+//        Foo f = new Zoo("123");
+//        f.say();
     }
 
     @Nullable
     @Override
     public ActionBar getActionBar() {
-        ActionBar actionBar = super.getActionBar();
-        return actionBar;
+        try {
+            ActionBar actionBar = super.getActionBar();
+            return actionBar;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
     public void onClick(View v) {
-        Toast.makeText(this, "onClick", Toast.LENGTH_LONG).show();
+//        Toast.makeText(this, "onClick", Toast.LENGTH_LONG).show();
+        ArrayList list = new ArrayList();
+        list.add(Toast.makeText(this, "onClick", Toast.LENGTH_LONG));
     }
 }

@@ -47,6 +47,43 @@ public class ASMHelper {
         }
     }
 
+    public static void storeNode(ListIterator<AbstractInsnNode> iterator, Object paramType, int index) {
+        //(Ljava/lang/String;IDCBSJZF)V
+        if (Opcodes.INTEGER.equals(paramType)) {
+            iterator.add(new VarInsnNode(Opcodes.ISTORE, index));
+        } else if (Opcodes.LONG.equals(paramType)) {
+            iterator.add(new VarInsnNode(Opcodes.LSTORE, index));
+        } else if (Opcodes.FLOAT.equals(paramType)) {
+            iterator.add(new VarInsnNode(Opcodes.FSTORE, index));
+        } else if (Opcodes.DOUBLE.equals(paramType)) {
+            iterator.add(new VarInsnNode(Opcodes.DSTORE, index));
+        } else {
+            iterator.add(new VarInsnNode(Opcodes.ASTORE, index));
+        }
+    }
+
+    public static int getSize(Object paramType) {
+        if (Opcodes.LONG.equals(paramType) || Opcodes.DOUBLE.equals(paramType) || Opcodes.TOP.equals(paramType)) {
+            return 2;
+        } else {
+            return 1;
+        }
+    }
+
+    public static void loadNode(ListIterator<AbstractInsnNode> iterator, Object paramType, int index) {
+        if (Opcodes.INTEGER.equals(paramType)) {
+            iterator.add(new VarInsnNode(Opcodes.ILOAD, index));
+        } else if (Opcodes.LONG.equals(paramType)) {
+            iterator.add(new VarInsnNode(Opcodes.LLOAD, index));
+        } else if (Opcodes.FLOAT.equals(paramType)) {
+            iterator.add(new VarInsnNode(Opcodes.FLOAD, index));
+        } else if (Opcodes.DOUBLE.equals(paramType)) {
+            iterator.add(new VarInsnNode(Opcodes.DLOAD, index));
+        } else {
+            iterator.add(new VarInsnNode(Opcodes.ALOAD, index));
+        }
+    }
+
     public static void storeNode(ListIterator<AbstractInsnNode> iterator, String paramType, int index) {
         //(Ljava/lang/String;IDCBSJZF)V
         if ("I".equals(paramType)
@@ -285,7 +322,7 @@ public class ASMHelper {
         try {
             ClassReader reader = new ClassReader(className);
             ClassNode classNode = new ClassNode(Opcodes.ASM5);
-            reader.accept(classNode, 0);
+            reader.accept(classNode, ClassReader.EXPAND_FRAMES);
             return classNode;
         } catch (IOException e) {
             e.printStackTrace();
@@ -296,7 +333,7 @@ public class ASMHelper {
     public static ClassNode getClassNode(byte[] classBytes) {
         ClassReader reader = new ClassReader(classBytes);
         ClassNode classNode = new ClassNode(Opcodes.ASM5);
-        reader.accept(classNode, 0);
+        reader.accept(classNode, ClassReader.EXPAND_FRAMES);
         return classNode;
     }
 
