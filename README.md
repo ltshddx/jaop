@@ -1,11 +1,8 @@
 # jaop
 
-jaop 是一个基于javassist和asm的gradle aop插件，可以在特定的方法调用处或方法体内 编程
-
-javassist做简单的代码插入，asm做操作数栈分析和字节码的转录
-
-不会新增任何方法，秒杀aspectj
-
+jaop 是一个基于javassist和asm的gradle aop插件，可以在特定的方法调用处或方法体内 编程 
+javassist做简单的代码插入，asm做操作数栈分析和字节码的转录 
+不会新增任何方法，秒杀aspectj 
 兼容性更好
 
 配置
