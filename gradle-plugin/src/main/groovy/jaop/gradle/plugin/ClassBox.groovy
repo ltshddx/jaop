@@ -5,6 +5,7 @@ import javassist.CtMethod;
 
 class ClassBox {
     List<CtClass> dryClasses = new ArrayList<>()
+    List<CtClass> wetClasses = new ArrayList<>()
     List<Config> callConfig = new ArrayList<>()
     List<Config> bodyConfig = new ArrayList<>()
 

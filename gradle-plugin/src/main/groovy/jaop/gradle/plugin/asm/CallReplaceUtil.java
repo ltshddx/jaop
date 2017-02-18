@@ -27,7 +27,7 @@ import jaop.gradle.plugin.Config;
 import javassist.ClassPool;
 import javassist.CtClass;
 import javassist.CtMethod;
-import javassist.expr.Expr;
+import javassist.expr.MethodCall;
 
 /**
  * Created by liting06 on 2017/1/18.
@@ -35,11 +35,11 @@ import javassist.expr.Expr;
 
 public class CallReplaceUtil {
 
-    public static CtClass doit(Expr methodCall, Config config) throws Exception {
+    public static CtClass doit(MethodCall methodCall, Config config) throws Exception {
         ClassPool classPool = methodCall.getEnclosingClass().getClassPool();
         final CtClass declaringClass = classPool.get(methodCall.where().getDeclaringClass().getName());
         ClassNode classNode = ASMHelper.getClassNode(declaringClass.toBytecode());
-        MethodNode inWhichMethod = ASMHelper.getMethod(classNode, methodCall.where().getName());
+        MethodNode inWhichMethod = ASMHelper.getMethod(classNode, methodCall.where());
         if (inWhichMethod == null) {
             throw new RuntimeException("method not found");
         }
@@ -54,9 +54,9 @@ public class CallReplaceUtil {
             if (srcNext instanceof MethodInsnNode) {
                 MethodInsnNode methodInsnNode = (MethodInsnNode) srcNext;
 //                if (methodInsnNode.owner.equals(config.getTarget().className.replace(".", "/")) && methodInsnNode.name.equals(config.getTarget().methodName)) {
-                if ((methodInsnNode.owner + "/" + methodInsnNode.name).equals(config.getTarget().value.replace(".", "/"))) {
+                if ((methodInsnNode.owner + "/" + methodInsnNode.name).equals((methodCall.getClassName() + "/" + methodCall.getMethodName()).replace(".", "/"))) {
                     ClassNode callClass = ASMHelper.getClassNode(configMethod.getDeclaringClass().toBytecode());
-                    MethodNode call = ASMHelper.getMethod(callClass, configMethod.getName());
+                    MethodNode call = ASMHelper.getMethod(callClass, configMethod);
                     ASMHelper.ParamTypeLsit params = ASMHelper.getArgTypes(methodInsnNode.desc);
                     String returnType = ASMHelper.getReturnType(methodInsnNode.desc).name;
                     int targetSize = (methodInsnNode.getOpcode() == Opcodes.INVOKESTATIC) ? 0 : 1;
@@ -117,8 +117,8 @@ public class CallReplaceUtil {
                     }
                     srcIterator.add(new FieldInsnNode(Opcodes.PUTFIELD, "jaop/domain/internal/HookImplForPlugin", "args", "[Ljava/lang/Object;"));
                     ListIterator callIterator = call.instructions.iterator();
-                    List<JumpInsnNode> jumpInsnNodes = new ArrayList<>();
-                    LabelNode lastLabelNode = null;
+//                    List<JumpInsnNode> jumpInsnNodes = new ArrayList<>();
+                    LabelNode lastLabelNode = new LabelNode();
                     while (callIterator.hasNext()) {
                         AbstractInsnNode next = (AbstractInsnNode) callIterator.next();
                         if (next instanceof InsnNode) {
@@ -141,14 +141,14 @@ public class CallReplaceUtil {
                                 }
                                 if (callIterator.hasNext()) {
                                     // config里面会有return，把它替换成goto到最后一个label
-                                    JumpInsnNode jumpInsnNode = new JumpInsnNode(Opcodes.GOTO, null);
-                                    jumpInsnNodes.add(jumpInsnNode);
+                                    JumpInsnNode jumpInsnNode = new JumpInsnNode(Opcodes.GOTO, lastLabelNode);
+//                                    jumpInsnNodes.add(jumpInsnNode);
                                     srcIterator.add(jumpInsnNode);
                                 }
                                 continue;
                             }
-                        } else if (next instanceof LabelNode) {
-                            lastLabelNode = (LabelNode) next;
+//                        } else if (next instanceof LabelNode) {
+//                            lastLabelNode = (LabelNode) next;
                         } else if (next instanceof VarInsnNode) {
                             VarInsnNode varInsnNode = (VarInsnNode) next;
                             varInsnNode.var += (inWhichMethod.maxLocals + targetSize + params.size());
@@ -207,9 +207,10 @@ public class CallReplaceUtil {
                         }
                         srcIterator.add(next);
                     }
-                    for (JumpInsnNode node : jumpInsnNodes) {
-                        node.label = lastLabelNode;
-                    }
+//                    for (JumpInsnNode node : jumpInsnNodes) {
+//                        node.label = lastLabelNode;
+//                    }
+                    srcIterator.add(lastLabelNode);
                     inWhichMethod.tryCatchBlocks.addAll(call.tryCatchBlocks);
                     // 补全stack
                     for (int i = 0; i < stackLeft;) {

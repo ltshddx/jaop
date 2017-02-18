@@ -108,35 +108,53 @@ class MainTransform extends Transform implements Plugin<Project> {
                 box.callConfig.stream().filter {
                     ctClass != it.ctMethod.declaringClass
                 }.forEach { config ->
-                    ctClass.instrument(new ExprEditor() {
-                        @Override
-                        void edit(MethodCall m) throws CannotCompileException {
-                            if (ClassMatcher.match(m, config.target)) {
-                                if (config.annotation instanceof Replace) {
+                    ctClass.declaredBehaviors.each {
+                        HashSet sameNewHook = new HashSet()
+                        HashSet sameCallHook = new HashSet()
+                        boolean firstCallSuper = true
+                        it.instrument(new ExprEditor() {
+                            @Override
+                            void edit(MethodCall m) throws CannotCompileException {
+                                if (ClassMatcher.match(m, config.target)) {
+                                    if (config.annotation instanceof Replace) {
 //                                    JaopModifier.callReplace(m, config, wetClasses)
-                                    methodCallMap.put(m, config)
-                                } else if (config.annotation instanceof Before) {
-                                    JaopModifier.callBefore(m, config)
-                                } else if (config.annotation instanceof After) {
-                                    JaopModifier.callAfter(m, config)
+                                        String desc = "$m.className.$m.methodName.$m.method.methodInfo2.descriptor"
+                                        if (!sameCallHook.contains(desc)) {
+                                            sameCallHook.add(desc)
+                                            methodCallMap.put(m, config)
+                                        }
+                                    } else if (config.annotation instanceof Before) {
+                                        JaopModifier.callBefore(m, config)
+                                    } else if (config.annotation instanceof After) {
+                                        JaopModifier.callAfter(m, config)
+                                    }
                                 }
                             }
-                        }
 
-                        @Override
-                        void edit(NewExpr e) throws CannotCompileException {
-                            if (ClassMatcher.match(e.className, 'new', config.target)) {
-                                if (config.annotation instanceof Replace) {
+                            @Override
+                            void edit(NewExpr e) throws CannotCompileException {
+                                if (firstCallSuper && it instanceof CtConstructor && e.className.equals(ctClass.getSuperclass().getName())) {
+                                    // call foo super
+                                    firstCallSuper = false
+                                    return
+                                }
+                                if (ClassMatcher.match(e.className, 'new', config.target)) {
+                                    if (config.annotation instanceof Replace) {
 //                                    JaopModifier.callReplaceForConstructor(e, config, wetClasses)
-                                    newExprMap.put(e, config)
-                                } else if (config.annotation instanceof Before) {
-                                    JaopModifier.callBefore(e, config)
-                                } else if (config.annotation instanceof After) {
-                                    JaopModifier.callAfter(e, config)
+                                        String desc = "$e.className.$e.constructor.methodInfo2.descriptor"
+                                        if (!sameNewHook.contains(desc)) {
+                                            sameNewHook.add(desc)
+                                            newExprMap.put(e, config)
+                                        }
+                                    } else if (config.annotation instanceof Before) {
+                                        JaopModifier.callBefore(e, config)
+                                    } else if (config.annotation instanceof After) {
+                                        JaopModifier.callAfter(e, config)
+                                    }
                                 }
                             }
-                        }
-                    })
+                        })
+                    }
                 }
 
                 box.bodyConfig.findAll { config ->
@@ -145,6 +163,12 @@ class MainTransform extends Transform implements Plugin<Project> {
                     ctClass.declaredBehaviors.findAll {
                         // synthetic 方法暂时不aop 比如AsyncTask 会生成一些同名 synthetic方法
                         if ((it.getModifiers() & AccessFlag.SYNTHETIC) != 0) {
+                            return false
+                        }
+                        if ((it.getModifiers() & AccessFlag.ABSTRACT) != 0) {
+                            return false
+                        }
+                        if ((it.getModifiers() & AccessFlag.NATIVE) != 0) {
                             return false
                         }
                         def methodName = it.name
@@ -158,9 +182,9 @@ class MainTransform extends Transform implements Plugin<Project> {
                             if (ctBehavior instanceof CtMethod)
 //                                JaopModifier.bodyReplace(ctBehavior, config, wetClasses)
                                 bodyMap.put(ctBehavior, config)
-                            else if(ctBehavior instanceof CtConstructor)
-//                                JaopModifier.bodyReplaceForConstructor(ctBehavior, config, wetClasses)
-                                throw new GradleException("you can not repalce a constructor, it is very dangerous")
+//                            else if(ctBehavior instanceof CtConstructor)
+////                                JaopModifier.bodyReplaceForConstructor(ctBehavior, config, wetClasses)
+//                                println "in $ctClass.name, you can not repalce a constructor, it is very dangerous"
                         } else if (config.annotation instanceof Before) {
                             JaopModifier.bodyBefore(ctBehavior, config)
                         } else if (config.annotation instanceof After) {
@@ -168,6 +192,12 @@ class MainTransform extends Transform implements Plugin<Project> {
                         }
                     }
                 }
+                ctClass.writeFile(outDir)
+            }
+        }.get()
+
+        new ForkJoinPool().submit{
+            box.wetClasses.parallelStream().forEach { ctClass ->
                 ctClass.writeFile(outDir)
             }
         }.get()

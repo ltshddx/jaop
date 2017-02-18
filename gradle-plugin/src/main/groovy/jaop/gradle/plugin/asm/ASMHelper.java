@@ -22,6 +22,9 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
 
+import javassist.CtBehavior;
+import javassist.CtConstructor;
+
 /**
  * Created by liting06 on 2017/1/18.
  */
@@ -304,14 +307,19 @@ public class ASMHelper {
     }
 
 
-    public static MethodNode getMethod(ClassNode classNode, String method) {
-        Iterator methodIterator = classNode.methods.iterator();
-        boolean isConstructor = classNode.name.endsWith("/" + method);
-        while (methodIterator.hasNext()) {
-            MethodNode methodNode = (MethodNode) methodIterator.next();
-            if (isConstructor && methodNode.name.equals("<init>")) {
-                return methodNode;
-            } else if (!isConstructor && methodNode.name.equals(method)) {
+    public static MethodNode getMethod(ClassNode classNode, CtBehavior method) {
+        for (MethodNode methodNode : classNode.methods) {
+            String methodName = method.getName();
+            if (method instanceof CtConstructor) {
+                CtConstructor ctConstructor = (CtConstructor) method;
+                if (ctConstructor.isClassInitializer()) {
+                    methodName = "<clinit>";
+                } else {
+                    methodName = "<init>";
+                }
+            }
+            if (methodNode.name.equals(methodName)
+                    && method.getMethodInfo2().getDescriptor().equals(methodNode.desc)) {
                 return methodNode;
             }
         }
@@ -338,53 +346,6 @@ public class ASMHelper {
     }
 
 
-    public static void insertBefore(MethodNode dest, String configClass, String configMethod) {
-        MethodNode src = getMethod(getClassNode(configClass), configMethod);
-        if (src == null) {
-            return;
-        }
-
-        List<AbstractInsnNode> print2nodes = new ArrayList<>();
-        int destLocals = dest.maxLocals;
-
-        if (src.maxStack > dest.maxStack) {
-            dest.maxStack = src.maxStack;
-        }
-        dest.maxLocals = src.maxLocals + dest.maxLocals;
-
-
-        ListIterator iterator = src.instructions.iterator();
-        LabelNode lastLabelNode = null;
-        List<JumpInsnNode> jumpInsnNodes = new ArrayList<>();
-        while (iterator.hasNext()) {
-            AbstractInsnNode next = (AbstractInsnNode) iterator.next();
-            if (next instanceof InsnNode) {
-                InsnNode insnNode = (InsnNode) next;
-                int opcode = insnNode.getOpcode();
-                if (opcode >= Opcodes.IRETURN && opcode <= Opcodes.RETURN) {
-                    if (iterator.hasNext()) {
-                        JumpInsnNode jumpInsnNode = new JumpInsnNode(Opcodes.GOTO, null);
-                        print2nodes.add(jumpInsnNode);
-                        jumpInsnNodes.add(jumpInsnNode);
-                    }
-                    continue;
-                }
-            } else if (next instanceof LabelNode) {
-                lastLabelNode = (LabelNode) next;
-            } else if (next instanceof VarInsnNode) {
-                VarInsnNode varInsnNode = (VarInsnNode) next;
-                varInsnNode.var += destLocals;
-            }
-            print2nodes.add(next);
-        }
-        for (JumpInsnNode node : jumpInsnNodes) {
-            node.label = lastLabelNode;
-        }
-
-        for (int i = print2nodes.size() - 1; i >0; i--) {
-            dest.instructions.insert(print2nodes.get(i));
-        }
-    }
 
     public static ParamTypeLsit getArgTypes(String signature) {
         final ParamTypeLsit args = new ParamTypeLsit();
@@ -476,26 +437,30 @@ public class ASMHelper {
                 public void visitBaseType(char descriptor) {
                     if (isReturn) {
                         String prefix = isArray ? "[" : "";
-                        isArray = false;
                         item.name = prefix + descriptor;
                         item.length = getTypeLength(item.name);
                     }
+                    isArray = false;
                     super.visitBaseType(descriptor);
                 }
 
                 @Override
                 public SignatureVisitor visitArrayType() {
+                    isArray = true;
                     return super.visitArrayType();
                 }
 
                 @Override
                 public void visitClassType(String name) {
                     if (isReturn) {
-                        String prefix = isArray ? "[" : "";
-                        isArray = false;
-                        item.name = prefix + name;
+                        if (isArray) {
+                            item.name = "[L" + name + ";";
+                        } else {
+                            item.name = name;
+                        }
                         item.length = getTypeLength(item.name);
                     }
+                    isArray = false;
                     super.visitClassType(name);
                 }
             });

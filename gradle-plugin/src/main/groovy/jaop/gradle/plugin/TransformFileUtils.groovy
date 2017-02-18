@@ -20,7 +20,7 @@ class TransformFileUtils {
     private static final String METHODBODYHOOK_NAME = MethodBodyHook.name
 
     static ClassBox toCtClasses(Collection<TransformInput> inputs, ClassPool classPool) {
-        List<String> classNames = new ArrayList<>()
+        HashSet<String> classNames = new HashSet<>()
         def startTime = System.currentTimeMillis()
         inputs.each {
             it.directoryInputs.each {
@@ -57,9 +57,8 @@ class TransformFileUtils {
 
 
     static void checkCtClass(ClassPool classPool, ClassBox box, CtClass ctClass) {
-        box.dryClasses.add(ctClass)
-//        box.methodCache.add(ctClass.declaredMethods)
         if (ctClass.getAnnotation(Jaop) != null) {
+            box.wetClasses.add(ctClass)
             ctClass.declaredMethods.each {
 
                 Object object = it.getAnnotation(Replace)
@@ -124,6 +123,11 @@ class TransformFileUtils {
                     it.setModifiers(Modifier.setPublic(it.modifiers))
                 }
             }
+        } else if (ctClass.getPackageName().startsWith("jaop.domain")) {
+            // u can not hook my package, its mine
+            box.wetClasses.add(ctClass)
+        } else {
+            box.dryClasses.add(ctClass)
         }
     }
 }

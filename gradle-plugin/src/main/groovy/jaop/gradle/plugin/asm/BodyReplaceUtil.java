@@ -40,11 +40,11 @@ public class BodyReplaceUtil {
         byte[] srcBytes = classPool.get(ctMethod.getDeclaringClass().getName()).toBytecode();
 
         ClassNode classNode = ASMHelper.getClassNode(srcBytes);
-        MethodNode srcMethod = ASMHelper.getMethod(classNode, ctMethod.getName());
+        MethodNode srcMethod = ASMHelper.getMethod(classNode, ctMethod);
 
         CtMethod configMethod = config.getCtMethod();
         MethodNode bodyConfig = ASMHelper.getMethod(
-                ASMHelper.getClassNode(configMethod.getDeclaringClass().toBytecode()), configMethod.getName());
+                ASMHelper.getClassNode(configMethod.getDeclaringClass().toBytecode()), configMethod);
 
         ASMHelper.ParamTypeLsit params = ASMHelper.getArgTypes(srcMethod.desc);
         String returnType = ASMHelper.getReturnType(srcMethod.desc).name;
@@ -141,12 +141,12 @@ public class BodyReplaceUtil {
                 }
                 newIterator.add(new InsnNode(Opcodes.POP));
                 if (srcInsnList == null) {
-                    srcInsnList = ASMHelper.getMethod(ASMHelper.getClassNode(srcBytes), ctMethod.getName()).instructions;
+                    srcInsnList = ASMHelper.getMethod(ASMHelper.getClassNode(srcBytes), ctMethod).instructions;
                 }
                 ListIterator<AbstractInsnNode> srcIterator = srcInsnList.iterator();
                 srcInsnList = null;
-                List<JumpInsnNode> jumpInsnNodes = new ArrayList<>();
-                LabelNode lastLabelNode = null;
+//                List<JumpInsnNode> jumpInsnNodes = new ArrayList<>();
+                LabelNode lastLabelNode = new LabelNode();
                 while (srcIterator.hasNext()) {
                     AbstractInsnNode srcNext = srcIterator.next();
                     if (srcNext instanceof InsnNode) {
@@ -162,20 +162,21 @@ public class BodyReplaceUtil {
                             }
                             if (srcIterator.hasNext()) {
                                 // config里面会有return，把它替换成goto到最后一个label
-                                JumpInsnNode jumpInsnNode = new JumpInsnNode(Opcodes.GOTO, null);
-                                jumpInsnNodes.add(jumpInsnNode);
+                                JumpInsnNode jumpInsnNode = new JumpInsnNode(Opcodes.GOTO, lastLabelNode);
+//                                jumpInsnNodes.add(jumpInsnNode);
                                 newIterator.add(jumpInsnNode);
                             }
                             continue;
                         }
-                    } else if (srcNext instanceof LabelNode) {
-                        lastLabelNode = (LabelNode) srcNext;
+//                    } else if (srcNext instanceof LabelNode) {
+//                        lastLabelNode = (LabelNode) srcNext;
                     }
                     newIterator.add(srcNext);
                 }
-                for (JumpInsnNode node : jumpInsnNodes) {
-                    node.label = lastLabelNode;
-                }
+//                for (JumpInsnNode node : jumpInsnNodes) {
+//                    node.label = lastLabelNode;
+//                }
+                newIterator.add(lastLabelNode);
                 newIterator.add(new VarInsnNode(Opcodes.ALOAD, srcMethod.maxLocals + configSize));
                 newIterator.add(new FieldInsnNode(Opcodes.GETFIELD, "jaop/domain/internal/HookImplForPlugin", "result", "Ljava/lang/Object;"));
 

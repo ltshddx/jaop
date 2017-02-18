@@ -40,7 +40,7 @@ public class CallReplaceForConstructorUtil {
         ClassPool classPool = newExpr.getEnclosingClass().getClassPool();
         final CtClass declaringClass = classPool.get(newExpr.where().getDeclaringClass().getName());
         ClassNode classNode = ASMHelper.getClassNode(declaringClass.toBytecode());
-        MethodNode inWhichMethod = ASMHelper.getMethod(classNode, newExpr.where().getName());
+        MethodNode inWhichMethod = ASMHelper.getMethod(classNode, newExpr.where());
         if (inWhichMethod == null) {
             throw new RuntimeException("method not found");
         }
@@ -61,6 +61,9 @@ public class CallReplaceForConstructorUtil {
                     srcIterator.remove();
                     srcNext.accept(analyzerAdapter);
                     srcNext = srcIterator.next();
+                    if (srcNext.getOpcode() != Opcodes.DUP) {
+                        throw new GradleException("new next is not dup");
+                    }
                     srcIterator.remove();
                     srcNext.accept(analyzerAdapter);
                     continue;
@@ -69,7 +72,10 @@ public class CallReplaceForConstructorUtil {
                 MethodInsnNode methodInsnNode = (MethodInsnNode) srcNext;
                 if ((methodInsnNode.owner + "/" + methodInsnNode.name).equals(configTargetClass + "/<init>")) {
                     ClassNode callClass = ASMHelper.getClassNode(configMethod.getDeclaringClass().toBytecode());
-                    MethodNode call = ASMHelper.getMethod(callClass, configMethod.getName());
+                    MethodNode call = ASMHelper.getMethod(callClass, configMethod);
+                    if (call == null) {
+                        throw new RuntimeException("method not found");
+                    }
                     ASMHelper.ParamTypeLsit params = ASMHelper.getArgTypes(methodInsnNode.desc);
                     srcIterator.remove();
                     Iterator<ASMHelper.ParamTypeItem> descendingIterator = params.descendingIterator();
@@ -124,8 +130,8 @@ public class CallReplaceForConstructorUtil {
                     }
                     srcIterator.add(new FieldInsnNode(Opcodes.PUTFIELD, "jaop/domain/internal/HookImplForPlugin", "args", "[Ljava/lang/Object;"));
                     ListIterator callIterator = call.instructions.iterator();
-                    List<JumpInsnNode> jumpInsnNodes = new ArrayList<>();
-                    LabelNode lastLabelNode = null;
+//                    List<JumpInsnNode> jumpInsnNodes = new ArrayList<>();
+                    LabelNode lastLabelNode = new LabelNode();
                     while (callIterator.hasNext()) {
                         AbstractInsnNode next = (AbstractInsnNode) callIterator.next();
                         if (next instanceof InsnNode) {
@@ -148,14 +154,14 @@ public class CallReplaceForConstructorUtil {
                                 }
                                 if (callIterator.hasNext()) {
                                     // config里面会有return，把它替换成goto到最后一个label
-                                    JumpInsnNode jumpInsnNode = new JumpInsnNode(Opcodes.GOTO, null);
-                                    jumpInsnNodes.add(jumpInsnNode);
+                                    JumpInsnNode jumpInsnNode = new JumpInsnNode(Opcodes.GOTO, lastLabelNode);
+//                                    jumpInsnNodes.add(jumpInsnNode);
                                     srcIterator.add(jumpInsnNode);
                                 }
                                 continue;
                             }
-                        } else if (next instanceof LabelNode) {
-                            lastLabelNode = (LabelNode) next;
+//                        } else if (next instanceof LabelNode) {
+//                            lastLabelNode = (LabelNode) next;
                         } else if (next instanceof VarInsnNode) {
                             VarInsnNode varInsnNode = (VarInsnNode) next;
                             varInsnNode.var += (inWhichMethod.maxLocals + targetSize + params.size());
@@ -211,11 +217,9 @@ public class CallReplaceForConstructorUtil {
                         }
                         srcIterator.add(next);
                     }
-                    for (JumpInsnNode node : jumpInsnNodes) {
-                        node.label = lastLabelNode;
-                    }
+                    srcIterator.add(lastLabelNode);
                     inWhichMethod.tryCatchBlocks.addAll(call.tryCatchBlocks);
-                    // 把stack清空 不然计算stackmaptable 会有问题
+                    // 补全stack
                     for (int i = 0; i < stackLeft;) {
                         Object o = analyzerAdapter.stack.get(i);
                         if (!(o instanceof Label)) {
@@ -226,7 +230,7 @@ public class CallReplaceForConstructorUtil {
                     // 如果之前有返回值 把result还给它
                     srcIterator.add(new VarInsnNode(Opcodes.ALOAD, inWhichMethod.maxLocals + targetSize + params.size() + configSize));
                     srcIterator.add(new FieldInsnNode(Opcodes.GETFIELD, "jaop/domain/internal/HookImplForPlugin", "result", "Ljava/lang/Object;"));
-
+                    ASMHelper.parseToBase(srcIterator, configTargetClass);
 //                    print1.maxLocals += (call.maxLocals + targetSize + params.size());
 //                    inWhichMethod.maxStack += call.maxStack;
                 }

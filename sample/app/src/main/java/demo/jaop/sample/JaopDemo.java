@@ -87,4 +87,22 @@ public class JaopDemo {
     public void replace7(MethodBodyHook hook) {
         Log.e("JaopDemo", "onClick_hook2");
     }
+
+    @Replace("**")
+    public void replaceAll(MethodBodyHook hook) {
+        try {
+            hook.process();
+        } catch (Throwable throwable) {
+            throwable.printStackTrace();
+        }
+    }
+    @Replace("**.new")
+    public void replaceAll(MethodCallHook hook) {
+        try {
+            Log.e("Replace", "123");
+            hook.process();
+        } catch (Throwable throwable) {
+            throwable.printStackTrace();
+        }
+    }
 }
