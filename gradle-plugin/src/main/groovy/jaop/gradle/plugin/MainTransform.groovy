@@ -14,20 +14,20 @@ import jaop.domain.annotation.Replace
 import jaop.gradle.plugin.asm.BodyReplaceUtil
 import jaop.gradle.plugin.asm.CallReplaceForConstructorUtil
 import jaop.gradle.plugin.asm.CallReplaceUtil
+import jaop.gradle.plugin.bean.UglyBean
 import javassist.CannotCompileException
 import javassist.CtClass
 import javassist.CtConstructor
 import javassist.CtMethod
 import javassist.JaopClassPool
+import javassist.NotFoundException
 import javassist.bytecode.AccessFlag
 import javassist.expr.ExprEditor
 import javassist.expr.MethodCall
 import javassist.expr.NewExpr
-import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.logging.Logger
-
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ForkJoinPool
 
@@ -99,12 +99,23 @@ class MainTransform extends Transform implements Plugin<Project> {
             return
         }
 
-        Map<MethodCall, Config> methodCallMap = new HashMap<>()
-        Map<MethodCall, Config> newExprMap = new HashMap<>()
-        Map<CtMethod, Config> bodyMap = new HashMap<>()
+        Map<MethodCall, Config> methodCallMap = new ConcurrentHashMap<>()
+        Map<MethodCall, Config> newExprMap = new ConcurrentHashMap<>()
+        Map<UglyBean<CtMethod>, Config> bodyMap = new ConcurrentHashMap<>()
 
         new ForkJoinPool().submit{
-            box.dryClasses.parallelStream().forEach { ctClass ->
+            box.dryClasses.parallelStream().findAll { ctClass ->
+                boolean result = true
+                try {
+                    ctClass.getSuperclass()
+                } catch (Exception e) {
+                    result = false
+                }
+                if (!result) {
+                    ctClass.writeFile(outDir)
+                }
+                return result
+            }.forEach { ctClass ->
                 box.callConfig.stream().filter {
                     ctClass != it.ctMethod.declaringClass
                 }.forEach { config ->
@@ -133,8 +144,9 @@ class MainTransform extends Transform implements Plugin<Project> {
 
                             @Override
                             void edit(NewExpr e) throws CannotCompileException {
-                                if (firstCallSuper && it instanceof CtConstructor && e.className.equals(ctClass.getSuperclass().getName())) {
-                                    // call foo super
+                                if (firstCallSuper && it instanceof CtConstructor &&
+                                        (e.className.equals(ctClass.superclass.name) || e.className.equals(ctClass.name))) {
+                                    // call foo super(**) or self this(**)
                                     firstCallSuper = false
                                     return
                                 }
@@ -162,6 +174,7 @@ class MainTransform extends Transform implements Plugin<Project> {
                 }.each { config ->
                     ctClass.declaredBehaviors.findAll {
                         // synthetic 方法暂时不aop 比如AsyncTask 会生成一些同名 synthetic方法
+                        // not support synthetic method
                         if ((it.getModifiers() & AccessFlag.SYNTHETIC) != 0) {
                             return false
                         }
@@ -179,12 +192,16 @@ class MainTransform extends Transform implements Plugin<Project> {
                                 ClassMatcher.match(ctClass.name, methodName, config.target)
                     }.each { ctBehavior ->
                         if (config.annotation instanceof Replace) {
-                            if (ctBehavior instanceof CtMethod)
-//                                JaopModifier.bodyReplace(ctBehavior, config, wetClasses)
-                                bodyMap.put(ctBehavior, config)
-//                            else if(ctBehavior instanceof CtConstructor)
-////                                JaopModifier.bodyReplaceForConstructor(ctBehavior, config, wetClasses)
-//                                println "in $ctClass.name, you can not repalce a constructor, it is very dangerous"
+                            // 吐槽下android rxjava 插件 生成的class，堆栈都没空就敢return，敢再懒一点么
+                            // 一刀切吧，下次心情好再适配下
+                            // in english: fuck rxjava
+                            boolean  isSyntheticClass = (ctClass.getModifiers() & AccessFlag.SYNTHETIC) != 0
+                            if (!isSyntheticClass && ctBehavior instanceof CtMethod) {
+                                bodyMap.put(UglyBean.get(ctBehavior), config)
+//                            } else if(ctBehavior instanceof CtConstructor) {
+//                                JaopModifier.bodyReplaceForConstructor(ctBehavior, config, wetClasses)
+//                                logger.warn "[WARNNING] in $ctClass.name, you can not repalce a constructor, it is very dangerous"
+                            }
                         } else if (config.annotation instanceof Before) {
                             JaopModifier.bodyBefore(ctBehavior, config)
                         } else if (config.annotation instanceof After) {
@@ -214,8 +231,17 @@ class MainTransform extends Transform implements Plugin<Project> {
         }
 
         bodyMap.entrySet().each {
-            def newClass = BodyReplaceUtil.doit(it.key, it.value)
-            asmMap.put(newClass.getName(), newClass)
+            try {
+                def newClass = BodyReplaceUtil.doit(it.key.self, it.value)
+                asmMap.put(newClass.getName(), newClass)
+            } catch (RuntimeException e) {
+                if (e.getClass() == RuntimeException.class && e.getMessage().startsWith("JSR/RET")) {
+                    logger.warn("[WARNNING] " + e.getMessage() + ", at " + it.key.self.getLongName());
+                } else {
+                    logger.error("[ERROR] " + e.getMessage() + ", at " + it.key.self.getLongName());
+//                    throw e;
+                }
+            }
         }
 
         asmMap.values().each {

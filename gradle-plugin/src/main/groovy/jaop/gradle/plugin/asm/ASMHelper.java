@@ -16,10 +16,8 @@ import org.objectweb.asm.tree.TypeInsnNode;
 import org.objectweb.asm.tree.VarInsnNode;
 
 import java.io.IOException;
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.LinkedList;
-import java.util.List;
 import java.util.ListIterator;
 
 import javassist.CtBehavior;
@@ -353,7 +351,7 @@ public class ASMHelper {
             SignatureReader reader = new SignatureReader(signature);
             reader.accept(new SignatureVisitor(Opcodes.ASM5) {
                 boolean isReturn = false;
-                boolean isArray = false;
+                int arrayCount = 0;
 
                 @Override
                 public SignatureVisitor visitParameterType() {
@@ -375,8 +373,8 @@ public class ASMHelper {
                 @Override
                 public void visitBaseType(char descriptor) {
                     if (!isReturn) {
-                        String prefix = isArray ? "[" : "";
-                        isArray = false;
+                        String prefix = getArrayDesc(arrayCount);
+                        arrayCount = 0;
                         ParamTypeItem item = new ParamTypeItem();
                         item.name = prefix + descriptor;
                         item.length = getTypeLength(item.name);
@@ -387,15 +385,15 @@ public class ASMHelper {
 
                 @Override
                 public SignatureVisitor visitArrayType() {
-                    isArray = true;
+                    arrayCount ++;
                     return super.visitArrayType();
                 }
 
                 @Override
                 public void visitClassType(String name) {
                     if (!isReturn) {
-                        String prefix = isArray ? "[" : "";
-                        isArray = false;
+                        String prefix = getArrayDesc(arrayCount);
+                        arrayCount = 0;
                         ParamTypeItem item = new ParamTypeItem();
                         item.name = prefix + name;
                         item.length = getTypeLength(item.name);
@@ -414,7 +412,7 @@ public class ASMHelper {
             SignatureReader reader = new SignatureReader(signature);
             reader.accept(new SignatureVisitor(Opcodes.ASM5) {
                 boolean isReturn = false;
-                boolean isArray = false;
+                int arrayCount = 0;
 
                 @Override
                 public SignatureVisitor visitParameterType() {
@@ -436,36 +434,44 @@ public class ASMHelper {
                 @Override
                 public void visitBaseType(char descriptor) {
                     if (isReturn) {
-                        String prefix = isArray ? "[" : "";
+                        String prefix = getArrayDesc(arrayCount);
                         item.name = prefix + descriptor;
                         item.length = getTypeLength(item.name);
                     }
-                    isArray = false;
+                    arrayCount = 0;
                     super.visitBaseType(descriptor);
                 }
 
                 @Override
                 public SignatureVisitor visitArrayType() {
-                    isArray = true;
+                    arrayCount ++;
                     return super.visitArrayType();
                 }
 
                 @Override
                 public void visitClassType(String name) {
                     if (isReturn) {
-                        if (isArray) {
-                            item.name = "[L" + name + ";";
+                        if (arrayCount != 0) {
+                            item.name = getArrayDesc(arrayCount) + "L" + name + ";";
                         } else {
                             item.name = name;
                         }
                         item.length = getTypeLength(item.name);
                     }
-                    isArray = false;
+                    arrayCount = 0;
                     super.visitClassType(name);
                 }
             });
         }
         return item;
+    }
+
+    private static String getArrayDesc(int count) {
+        StringBuilder result = new StringBuilder("");
+        for (int i = 0; i < count; i ++) {
+            result.append("[");
+        }
+        return result.toString();
     }
 
     public static class ParamTypeLsit implements Iterable<ParamTypeItem> {
