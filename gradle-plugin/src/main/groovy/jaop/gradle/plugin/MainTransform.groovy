@@ -25,6 +25,7 @@ import javassist.bytecode.AccessFlag
 import javassist.expr.ExprEditor
 import javassist.expr.MethodCall
 import javassist.expr.NewExpr
+import org.gradle.api.GradleException
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.logging.Logger
@@ -234,6 +235,8 @@ class MainTransform extends Transform implements Plugin<Project> {
             try {
                 def newClass = BodyReplaceUtil.doit(it.key.self, it.value)
                 asmMap.put(newClass.getName(), newClass)
+            } catch (GradleException ge) {
+                throw ge;
             } catch (RuntimeException e) {
                 if (e.getClass() == RuntimeException.class && e.getMessage().startsWith("JSR/RET")) {
                     logger.warn("[WARNNING] " + e.getMessage() + ", at " + it.key.self.getLongName());

@@ -161,10 +161,11 @@ public class CallReplaceUtil {
                                 lineNumberNod.line += 50000;
                             }
                         } else if (next instanceof MethodInsnNode &&
-                                ((MethodInsnNode) next).owner.equals(callClass.name) &&
-                                !((MethodInsnNode) next).name.equals("<init>") &&
-                                next.getOpcode() == Opcodes.INVOKESPECIAL) {
-                            throw new GradleException("in-line jaop config method must be public: "+ callClass.name + "/" + ((MethodInsnNode) next).name);
+                                ((MethodInsnNode) next).owner.equals(callClass.name)) {
+                            int access = ASMHelper.getMethodAccess(callClass, (MethodInsnNode) next);
+                            if ((access & Opcodes.ACC_PUBLIC) == 0) {
+                                throw new GradleException("in-line jaop config method must be public: " + callClass.name + "/" + ((MethodInsnNode) next).name);
+                            }
                         } else if (next instanceof MethodInsnNode &&
                                 ((MethodInsnNode) next).name.equals("process") &&
                                 ((MethodInsnNode) next).owner.equals("jaop/domain/MethodCallHook")) {

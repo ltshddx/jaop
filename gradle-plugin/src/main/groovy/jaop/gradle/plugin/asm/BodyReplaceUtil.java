@@ -43,8 +43,8 @@ public class BodyReplaceUtil {
         MethodNode srcMethod = ASMHelper.getMethod(classNode, ctMethod);
 
         CtMethod configMethod = config.getCtMethod();
-        MethodNode bodyConfig = ASMHelper.getMethod(
-                ASMHelper.getClassNode(configMethod.getDeclaringClass().toBytecode()), configMethod);
+        ClassNode configClass = ASMHelper.getClassNode(configMethod.getDeclaringClass().toBytecode());
+        MethodNode bodyConfig = ASMHelper.getMethod(configClass, configMethod);
 
         ASMHelper.ParamTypeLsit params = ASMHelper.getArgTypes(srcMethod.desc);
         String returnType = ASMHelper.getReturnType(srcMethod.desc).name;
@@ -113,10 +113,11 @@ public class BodyReplaceUtil {
                     lineNumberNod.line += 50000;
                 }
             } else if (next instanceof MethodInsnNode &&
-                    ((MethodInsnNode) next).owner.equals(bodyConfig.name) &&
-                    !((MethodInsnNode) next).name.equals("<init>") &&
-                    next.getOpcode() == Opcodes.INVOKESPECIAL) {
-                throw new GradleException("in-line jaop config method must be public: "+ bodyConfig.name + "/" + ((MethodInsnNode) next).name);
+                    ((MethodInsnNode) next).owner.equals(configClass.name)) {
+                int access = ASMHelper.getMethodAccess(configClass, (MethodInsnNode) next);
+                if ((access & Opcodes.ACC_PUBLIC) == 0) {
+                    throw new GradleException("in-line jaop config method must be public: " + configClass.name + "/" + ((MethodInsnNode) next).name);
+                }
             } else if (next instanceof IincInsnNode) {
                 IincInsnNode varInsnNode = (IincInsnNode) next;
                 varInsnNode.var += srcMethod.maxLocals;

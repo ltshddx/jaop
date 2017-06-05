@@ -1,5 +1,6 @@
 package jaop.gradle.plugin.asm;
 
+import org.gradle.api.GradleException;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.signature.SignatureReader;
@@ -341,6 +342,16 @@ public class ASMHelper {
         ClassNode classNode = new ClassNode(Opcodes.ASM5);
         reader.accept(classNode, ClassReader.EXPAND_FRAMES);
         return classNode;
+    }
+
+    public static int getMethodAccess(ClassNode classNode, MethodInsnNode methodInsnNode) {
+        for (MethodNode methodNode : classNode.methods) {
+            if (methodNode.name.equals(methodInsnNode.name) && methodNode.desc.equals(methodInsnNode.desc)) {
+                return methodNode.access;
+            }
+        }
+
+        throw new GradleException("method " + methodInsnNode.name + " not found in " + classNode.name);
     }
 
 
