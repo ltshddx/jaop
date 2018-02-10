@@ -168,11 +168,11 @@ public class CallReplaceForConstructorUtil {
                         } else if (next instanceof IincInsnNode) {
                             IincInsnNode varInsnNode = (IincInsnNode) next;
                             varInsnNode.var += (inWhichMethod.maxLocals + targetSize + params.size());
-                        } else if (next instanceof LineNumberNode) {
-                            LineNumberNode lineNumberNod = (LineNumberNode) next;
-                            if (lineNumberNod.line < 15536) {
-                                lineNumberNod.line += 50000;
-                            }
+//                        } else if (next instanceof LineNumberNode) {
+//                            LineNumberNode lineNumberNod = (LineNumberNode) next;
+//                            if (lineNumberNod.line < 15536) {
+//                                lineNumberNod.line += 50000;
+//                            }
                         } else if (next instanceof MethodInsnNode &&
                                 ((MethodInsnNode) next).owner.equals(callClass.name)) {
                             int access = ASMHelper.getMethodAccess(callClass, (MethodInsnNode) next);

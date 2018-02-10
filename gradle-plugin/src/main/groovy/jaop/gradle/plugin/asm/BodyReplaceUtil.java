@@ -107,11 +107,11 @@ public class BodyReplaceUtil {
             } else if (next instanceof VarInsnNode) {
                 VarInsnNode varInsnNode = (VarInsnNode) next;
                 varInsnNode.var += srcMethod.maxLocals;
-            } else if (next instanceof LineNumberNode) {
-                LineNumberNode lineNumberNod = (LineNumberNode) next;
-                if (lineNumberNod.line < 15536) {
-                    lineNumberNod.line += 50000;
-                }
+//            } else if (next instanceof LineNumberNode) {
+//                LineNumberNode lineNumberNod = (LineNumberNode) next;
+//                if (lineNumberNod.line < 15536) {
+//                    lineNumberNod.line += 50000;
+//                }
             } else if (next instanceof MethodInsnNode &&
                     ((MethodInsnNode) next).owner.equals(configClass.name)) {
                 int access = ASMHelper.getMethodAccess(configClass, (MethodInsnNode) next);
