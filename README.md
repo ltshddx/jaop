@@ -12,7 +12,7 @@ repositories {
   jcenter()
 }
 dependencies {
-    classpath 'com.android.tools.build:gradle:1.5.0' // 需要1.5的plugin
+    classpath 'com.android.tools.build:gradle:1.5.0' // 需要1.5及以上的plugin
     classpath 'jaop.gradle.plugin:gradle-plugin:1.0.4'
 }
 
